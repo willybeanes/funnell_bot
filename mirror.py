@@ -93,10 +93,22 @@ def fetch_tweets() -> list[dict] | None:
             screen_name = user_data["screen_name"]
 
         tweet_url = f"https://x.com/{screen_name}/status/{tweet_id}"
+
+        # Extract quoted tweet text if present
+        quoted_text = None
+        quoted_user = None
+        if tweet.get("is_quote_status") and tweet.get("quoted_status"):
+            qs = tweet["quoted_status"]
+            quoted_text = qs.get("full_text") or qs.get("text", "")
+            qs_user = qs.get("user", {})
+            quoted_user = qs_user.get("screen_name")
+
         results.append({
             "text": text,
             "url": tweet_url,
             "id": str(tweet_id),
+            "quoted_text": quoted_text,
+            "quoted_user": quoted_user,
         })
 
     print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME}")
@@ -110,7 +122,12 @@ def clean_tweet_text(text: str) -> str:
     return text.strip()
 
 
-def format_post(text: str, tweet_url: str) -> str:
+def format_post(text: str, tweet_url: str, quoted_text: str | None = None, quoted_user: str | None = None) -> str:
+    # Append quoted tweet if present
+    if quoted_text:
+        quote_label = f"@{quoted_user}" if quoted_user else "quoted"
+        text = f"{text}\n\n💬 {quote_label}: {quoted_text}"
+
     suffix = f"\n\n🐦 {tweet_url}"
 
     if len(text) + len(suffix) > BSKY_CHAR_LIMIT:
@@ -199,7 +216,10 @@ def main():
     for i, item in enumerate(new_items):
         text = clean_tweet_text(item["text"])
         url = item["url"]
-        post_text = format_post(text, url)
+        quoted_text = item.get("quoted_text")
+        if quoted_text:
+            quoted_text = clean_tweet_text(quoted_text)
+        post_text = format_post(text, url, quoted_text, item.get("quoted_user"))
 
         print(f"\nPosting ({i + 1}/{len(new_items)}): {url}")
         print(f"  Text: {post_text[:80]}...")
