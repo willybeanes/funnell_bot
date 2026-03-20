@@ -138,7 +138,29 @@ def create_rich_post(client: Client, post_text: str, tweet_url: str):
     return tb
 
 
+def seed():
+    """Mark all current tweets as already posted, so only future tweets get mirrored."""
+    tweet_items = fetch_tweets()
+    if tweet_items is None:
+        print("Error: Could not fetch tweets for seeding")
+        sys.exit(1)
+
+    posted = load_posted()
+    count = 0
+    for item in tweet_items:
+        if item["url"] not in posted:
+            save_posted(item["url"])
+            count += 1
+
+    print(f"Seeded {count} existing tweets into posted.txt (total: {count + len(posted)})")
+    print("Only new tweets from this point forward will be mirrored.")
+
+
 def main():
+    if "--seed" in sys.argv:
+        seed()
+        return
+
     bsky_password = os.environ.get("BSKY_APP_PASSWORD")
     if not bsky_password:
         print("Error: BSKY_APP_PASSWORD environment variable not set")
