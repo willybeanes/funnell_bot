@@ -1,0 +1,44 @@
+name: Mirror Tweets to Bluesky
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Restore posted.txt cache
+        uses: actions/cache@v4
+        with:
+          path: posted.txt
+          key: posted-tweets
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run mirror bot
+        env:
+          BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
+        run: python mirror.py
+
+      - name: Commit and push posted.txt
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add posted.txt
+          git diff --cached --quiet || git commit -m "Update posted.txt with new mirrored tweets"
+          git push
