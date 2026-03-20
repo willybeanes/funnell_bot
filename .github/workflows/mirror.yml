@@ -22,12 +22,6 @@ jobs:
           path: posted.txt
           key: posted-tweets
 
-      - name: Restore Twitter cookies cache
-        uses: actions/cache@v5
-        with:
-          path: cookies.json
-          key: twitter-cookies
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -39,9 +33,6 @@ jobs:
       - name: Run mirror bot
         env:
           BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
-          TWITTER_USERNAME: ${{ secrets.TWITTER_USERNAME }}
-          TWITTER_EMAIL: ${{ secrets.TWITTER_EMAIL }}
-          TWITTER_PASSWORD: ${{ secrets.TWITTER_PASSWORD }}
         run: python mirror.py
 
       - name: Commit and push posted.txt

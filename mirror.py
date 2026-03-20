@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""Twitter-to-Bluesky mirroring bot using Twikit for tweet fetching."""
+"""Twitter-to-Bluesky mirroring bot using Twikit GuestClient for tweet fetching."""
 
 import asyncio
-import json
 import os
 import re
 import sys
@@ -10,11 +9,10 @@ import time
 from pathlib import Path
 
 from atproto import Client, client_utils
-from twikit import Client as TwikitClient
+from twikit.guest import GuestClient
 
 BSKY_HANDLE = "sportz-nutt51-bot.bsky.social"
 POSTED_FILE = Path(__file__).parent / "posted.txt"
-COOKIES_FILE = Path(__file__).parent / "cookies.json"
 BSKY_CHAR_LIMIT = 300
 POST_DELAY = 5
 TWITTER_USERNAME = "sportz_nutt51"
@@ -32,50 +30,20 @@ def save_posted(url: str) -> None:
 
 
 async def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets using Twikit."""
-    username = os.environ.get("TWITTER_USERNAME", "")
-    email = os.environ.get("TWITTER_EMAIL", "")
-    password = os.environ.get("TWITTER_PASSWORD", "")
+    """Fetch recent tweets using Twikit GuestClient (no login required)."""
+    client = GuestClient()
 
-    if not password:
-        print("Error: TWITTER_PASSWORD environment variable not set")
+    try:
+        await client.activate()
+        print("Activated guest token")
+    except Exception as e:
+        print(f"Error activating guest token: {e}")
         return None
 
-    client = TwikitClient("en-US")
-
-    # Try to load saved cookies first
-    try:
-        if COOKIES_FILE.exists():
-            client.load_cookies(str(COOKIES_FILE))
-            print("Loaded saved Twitter cookies")
-        else:
-            raise FileNotFoundError
-    except Exception:
-        # Login fresh
-        if not username:
-            print("Error: TWITTER_USERNAME env var not set (needed for login)")
-            return None
-        print("Logging in to Twitter...")
-        try:
-            await client.login(
-                auth_info_1=username,
-                auth_info_2=email,
-                password=password,
-            )
-            client.save_cookies(str(COOKIES_FILE))
-            print("Logged in and saved cookies")
-        except Exception as e:
-            print(f"Error logging in to Twitter: {e}")
-            return None
-
-    # Get user and their tweets
     try:
         user = await client.get_user_by_screen_name(TWITTER_USERNAME)
         tweets = await client.get_user_tweets(user.id, "Tweets", count=20)
         print(f"Fetched {len(tweets)} tweets from @{TWITTER_USERNAME}")
-
-        # Save cookies after successful API call (refreshes session)
-        client.save_cookies(str(COOKIES_FILE))
 
         results = []
         for tweet in tweets:
@@ -88,32 +56,6 @@ async def fetch_tweets() -> list[dict] | None:
         return results
     except Exception as e:
         print(f"Error fetching tweets: {e}")
-        # If cookies were stale, try a fresh login
-        if COOKIES_FILE.exists():
-            print("Removing stale cookies and retrying login...")
-            COOKIES_FILE.unlink()
-            if username:
-                try:
-                    await client.login(
-                        auth_info_1=username,
-                        auth_info_2=email,
-                        password=password,
-                    )
-                    client.save_cookies(str(COOKIES_FILE))
-                    user = await client.get_user_by_screen_name(TWITTER_USERNAME)
-                    tweets = await client.get_user_tweets(user.id, "Tweets", count=20)
-                    print(f"Fetched {len(tweets)} tweets on retry")
-                    results = []
-                    for tweet in tweets:
-                        tweet_url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet.id}"
-                        results.append({
-                            "text": tweet.text or "",
-                            "url": tweet_url,
-                            "id": tweet.id,
-                        })
-                    return results
-                except Exception as e2:
-                    print(f"Error on retry: {e2}")
         return None
 
 
