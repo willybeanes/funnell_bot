@@ -1,21 +1,27 @@
 #!/usr/bin/env python3
-"""Twitter-to-Bluesky mirroring bot using Twikit GuestClient for tweet fetching."""
+"""Twitter-to-Bluesky mirroring bot using Twitter's syndication endpoint."""
 
-import asyncio
+import json
 import os
 import re
 import sys
 import time
 from pathlib import Path
 
+import httpx
 from atproto import Client, client_utils
-from twikit.guest import GuestClient
+from bs4 import BeautifulSoup
 
 BSKY_HANDLE = "sportz-nutt51-bot.bsky.social"
 POSTED_FILE = Path(__file__).parent / "posted.txt"
 BSKY_CHAR_LIMIT = 300
 POST_DELAY = 5
 TWITTER_USERNAME = "sportz_nutt51"
+
+SYNDICATION_URL = (
+    f"https://syndication.twitter.com/srv/timeline-profile/"
+    f"screen-name/{TWITTER_USERNAME}"
+)
 
 
 def load_posted() -> set[str]:
@@ -29,39 +35,78 @@ def save_posted(url: str) -> None:
         f.write(url + "\n")
 
 
-async def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets using Twikit GuestClient (no login required)."""
-    client = GuestClient()
+def fetch_tweets() -> list[dict] | None:
+    """Fetch recent tweets via Twitter's syndication/embed endpoint."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    }
 
     try:
-        await client.activate()
-        print("Activated guest token")
+        resp = httpx.get(SYNDICATION_URL, headers=headers, timeout=30, follow_redirects=True)
+        resp.raise_for_status()
     except Exception as e:
-        print(f"Error activating guest token: {e}")
+        print(f"Error fetching syndication page: {e}")
+        return None
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Tweet data is embedded in a script tag as JSON props
+    script = soup.find("script", {"id": "__NEXT_DATA__"})
+    if not script:
+        print("Error: Could not find tweet data in syndication page")
+        print(f"Page length: {len(resp.text)} chars")
         return None
 
     try:
-        user = await client.get_user_by_screen_name(TWITTER_USERNAME)
-        tweets = await client.get_user_tweets(user.id, "Tweets", count=20)
-        print(f"Fetched {len(tweets)} tweets from @{TWITTER_USERNAME}")
-
-        results = []
-        for tweet in tweets:
-            tweet_url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet.id}"
-            results.append({
-                "text": tweet.text or "",
-                "url": tweet_url,
-                "id": tweet.id,
-            })
-        return results
-    except Exception as e:
-        print(f"Error fetching tweets: {e}")
+        data = json.loads(script.string)
+    except json.JSONDecodeError as e:
+        print(f"Error parsing JSON: {e}")
         return None
+
+    # Navigate the JSON structure to find tweets
+    try:
+        timeline = data["props"]["pageProps"]["timeline"]
+        entries = timeline.get("entries", [])
+    except (KeyError, TypeError) as e:
+        print(f"Error navigating tweet data: {e}")
+        return None
+
+    results = []
+    for entry in entries:
+        content = entry.get("content", {})
+        tweet = content.get("tweet", content)
+
+        tweet_id = tweet.get("id_str") or tweet.get("id")
+        text = tweet.get("text", "")
+
+        if not tweet_id or not text:
+            continue
+
+        # Get the screen name from the tweet's user or fall back to configured username
+        screen_name = TWITTER_USERNAME
+        user_data = tweet.get("user", {})
+        if user_data.get("screen_name"):
+            screen_name = user_data["screen_name"]
+
+        tweet_url = f"https://x.com/{screen_name}/status/{tweet_id}"
+        results.append({
+            "text": text,
+            "url": tweet_url,
+            "id": str(tweet_id),
+        })
+
+    print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME}")
+    return results if results else None
 
 
 def clean_tweet_text(text: str) -> str:
     # Strip leading "RT @username: " prefix
     text = re.sub(r"^RT @\w+:\s*", "", text)
+    # Expand t.co links would require extra requests, so just leave them
     return text.strip()
 
 
@@ -99,8 +144,8 @@ def main():
         print("Error: BSKY_APP_PASSWORD environment variable not set")
         sys.exit(1)
 
-    # Fetch tweets via Twikit
-    tweet_items = asyncio.run(fetch_tweets())
+    # Fetch tweets
+    tweet_items = fetch_tweets()
     if tweet_items is None:
         print("Error: Could not fetch tweets")
         sys.exit(1)
