@@ -1,2 +1,2 @@
 atproto==0.0.55
-feedparser==6.0.11
+twikit==2.3.3

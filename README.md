@@ -1,13 +1,14 @@
 # Twitter-to-Bluesky Mirror Bot
 
-Automatically mirrors tweets from [@sportz_nutt51](https://x.com/sportz_nutt51) to [sportz-nutt51-bot.bsky.social](https://bsky.app/profile/sportz-nutt51-bot.bsky.social) via Nitter RSS feeds.
+Automatically mirrors tweets from [@sportz_nutt51](https://x.com/sportz_nutt51) to [sportz-nutt51-bot.bsky.social](https://bsky.app/profile/sportz-nutt51-bot.bsky.social) using [Twikit](https://github.com/d60/twikit) to fetch tweets.
 
 ## How It Works
 
 - A GitHub Actions workflow runs every 15 minutes
-- It fetches the latest tweets from a Nitter RSS feed
+- It fetches the latest tweets using Twikit (Twitter's internal API)
 - New tweets (not already in `posted.txt`) are posted to Bluesky
 - `posted.txt` is committed back to the repo to track what's been posted
+- Twitter session cookies are cached between runs to avoid repeated logins
 
 ## Setup
 
@@ -21,13 +22,18 @@ Click the **Fork** button at the top right of the GitHub page.
 2. Go to **Settings → App Passwords**
 3. Click **Add App Password**, give it a name (e.g., `mirror-bot`), and copy the generated password
 
-### 3. Add the secret to GitHub
+### 3. Add secrets to GitHub
 
-1. In your forked repo, go to **Settings → Secrets and variables → Actions**
-2. Click **New repository secret**
-3. Name: `BSKY_APP_PASSWORD`
-4. Value: paste the app password from step 2
-5. Click **Add secret**
+In your forked repo, go to **Settings → Secrets and variables → Actions** and add these secrets:
+
+| Secret | Description |
+|--------|-------------|
+| `BSKY_APP_PASSWORD` | Bluesky app password from step 2 |
+| `TWITTER_USERNAME` | Twitter/X username for login (the account used to scrape) |
+| `TWITTER_EMAIL` | Email associated with the Twitter/X login account |
+| `TWITTER_PASSWORD` | Password for the Twitter/X login account |
+
+> **Note:** The Twitter credentials are for the account *reading* tweets (can be any account, including a burner). This is NOT the account being mirrored — that's configured in `mirror.py` as `TWITTER_USERNAME`.
 
 ### 4. Enable the workflow
 
@@ -46,14 +52,13 @@ Click the **Fork** button at the top right of the GitHub page.
 
 ```bash
 pip install -r requirements.txt
-export BSKY_APP_PASSWORD="your-app-password-here"
+export BSKY_APP_PASSWORD="your-app-password"
+export TWITTER_USERNAME="your-twitter-login"
+export TWITTER_EMAIL="your-twitter-email"
+export TWITTER_PASSWORD="your-twitter-password"
 python mirror.py
 ```
 
 ## Customization
 
-To mirror a different account, edit these values in `mirror.py`:
-
-- `FEED_URLS` — the Nitter RSS feed URLs
-- `BSKY_HANDLE` — the destination Bluesky account
-- `TWITTER_USERNAME` — used for normalizing tweet URLs
+To mirror a different account, edit `TWITTER_USERNAME` (the target account) and `BSKY_HANDLE` in `mirror.py`.

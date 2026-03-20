@@ -1,22 +1,20 @@
 #!/usr/bin/env python3
-"""Twitter-to-Bluesky mirroring bot via Nitter RSS feeds."""
+"""Twitter-to-Bluesky mirroring bot using Twikit for tweet fetching."""
 
+import asyncio
+import json
 import os
 import re
 import sys
 import time
 from pathlib import Path
 
-import feedparser
 from atproto import Client, client_utils
-
-FEED_URLS = [
-    "https://xcancel.com/sportz_nutt51/rss",
-    "https://nitter.poast.org/sportz_nutt51/rss",
-]
+from twikit import Client as TwikitClient
 
 BSKY_HANDLE = "sportz-nutt51-bot.bsky.social"
 POSTED_FILE = Path(__file__).parent / "posted.txt"
+COOKIES_FILE = Path(__file__).parent / "cookies.json"
 BSKY_CHAR_LIMIT = 300
 POST_DELAY = 5
 TWITTER_USERNAME = "sportz_nutt51"
@@ -33,44 +31,103 @@ def save_posted(url: str) -> None:
         f.write(url + "\n")
 
 
-def fetch_feed() -> list[dict] | None:
-    for feed_url in FEED_URLS:
-        print(f"Trying feed: {feed_url}")
-        feed = feedparser.parse(feed_url)
-        if feed.bozo and not feed.entries:
-            print(f"  Feed error: {feed.bozo_exception}")
-            continue
-        if feed.entries:
-            print(f"  Found {len(feed.entries)} entries")
-            return feed.entries
-        print("  No entries found")
-    return None
+async def fetch_tweets() -> list[dict] | None:
+    """Fetch recent tweets using Twikit."""
+    username = os.environ.get("TWITTER_USERNAME", "")
+    email = os.environ.get("TWITTER_EMAIL", "")
+    password = os.environ.get("TWITTER_PASSWORD", "")
+
+    if not password:
+        print("Error: TWITTER_PASSWORD environment variable not set")
+        return None
+
+    client = TwikitClient("en-US")
+
+    # Try to load saved cookies first
+    try:
+        if COOKIES_FILE.exists():
+            client.load_cookies(str(COOKIES_FILE))
+            print("Loaded saved Twitter cookies")
+        else:
+            raise FileNotFoundError
+    except Exception:
+        # Login fresh
+        if not username:
+            print("Error: TWITTER_USERNAME env var not set (needed for login)")
+            return None
+        print("Logging in to Twitter...")
+        try:
+            await client.login(
+                auth_info_1=username,
+                auth_info_2=email,
+                password=password,
+            )
+            client.save_cookies(str(COOKIES_FILE))
+            print("Logged in and saved cookies")
+        except Exception as e:
+            print(f"Error logging in to Twitter: {e}")
+            return None
+
+    # Get user and their tweets
+    try:
+        user = await client.get_user_by_screen_name(TWITTER_USERNAME)
+        tweets = await client.get_user_tweets(user.id, "Tweets", count=20)
+        print(f"Fetched {len(tweets)} tweets from @{TWITTER_USERNAME}")
+
+        # Save cookies after successful API call (refreshes session)
+        client.save_cookies(str(COOKIES_FILE))
+
+        results = []
+        for tweet in tweets:
+            tweet_url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet.id}"
+            results.append({
+                "text": tweet.text or "",
+                "url": tweet_url,
+                "id": tweet.id,
+            })
+        return results
+    except Exception as e:
+        print(f"Error fetching tweets: {e}")
+        # If cookies were stale, try a fresh login
+        if COOKIES_FILE.exists():
+            print("Removing stale cookies and retrying login...")
+            COOKIES_FILE.unlink()
+            if username:
+                try:
+                    await client.login(
+                        auth_info_1=username,
+                        auth_info_2=email,
+                        password=password,
+                    )
+                    client.save_cookies(str(COOKIES_FILE))
+                    user = await client.get_user_by_screen_name(TWITTER_USERNAME)
+                    tweets = await client.get_user_tweets(user.id, "Tweets", count=20)
+                    print(f"Fetched {len(tweets)} tweets on retry")
+                    results = []
+                    for tweet in tweets:
+                        tweet_url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet.id}"
+                        results.append({
+                            "text": tweet.text or "",
+                            "url": tweet_url,
+                            "id": tweet.id,
+                        })
+                    return results
+                except Exception as e2:
+                    print(f"Error on retry: {e2}")
+        return None
 
 
 def clean_tweet_text(text: str) -> str:
     # Strip leading "RT @username: " prefix
     text = re.sub(r"^RT @\w+:\s*", "", text)
-    # Clean up HTML entities that feedparser might leave
-    text = text.strip()
-    return text
-
-
-def normalize_tweet_url(url: str) -> str:
-    """Convert any nitter/xcancel URL to canonical x.com URL."""
-    match = re.search(r"/status/(\d+)", url)
-    if match:
-        return f"https://x.com/{TWITTER_USERNAME}/status/{match.group(1)}"
-    return url
+    return text.strip()
 
 
 def format_post(text: str, tweet_url: str) -> str:
     suffix = f"\n\n🐦 {tweet_url}"
-    max_text_len = BSKY_CHAR_LIMIT - len(suffix)
 
     if len(text) + len(suffix) > BSKY_CHAR_LIMIT:
         truncation_marker = f"… [full tweet: {tweet_url}]"
-        max_text_len = BSKY_CHAR_LIMIT - len(suffix) - len(truncation_marker) + len(text[:0])
-        # Recalculate: we need text + truncation_marker + suffix <= 300
         available = BSKY_CHAR_LIMIT - len(truncation_marker) - len(suffix)
         text = text[:available] + truncation_marker
 
@@ -81,17 +138,12 @@ def create_rich_post(client: Client, post_text: str, tweet_url: str):
     """Create a post with a clickable link facet for the tweet URL."""
     tb = client_utils.TextBuilder()
 
-    # Find where the URL is in the post text
     url_start = post_text.find(tweet_url)
     if url_start == -1:
-        # URL not found as plain text, just post as-is
         tb.text(post_text)
     else:
-        # Add text before the URL
         tb.text(post_text[:url_start])
-        # Add the URL as a clickable link
         tb.link(tweet_url, tweet_url)
-        # Add any text after the URL
         remaining = post_text[url_start + len(tweet_url):]
         if remaining:
             tb.text(remaining)
@@ -100,25 +152,24 @@ def create_rich_post(client: Client, post_text: str, tweet_url: str):
 
 
 def main():
-    password = os.environ.get("BSKY_APP_PASSWORD")
-    if not password:
+    bsky_password = os.environ.get("BSKY_APP_PASSWORD")
+    if not bsky_password:
         print("Error: BSKY_APP_PASSWORD environment variable not set")
         sys.exit(1)
 
-    # Fetch RSS feed
-    entries = fetch_feed()
-    if entries is None:
-        print("Error: Could not fetch RSS feed from any source")
+    # Fetch tweets via Twikit
+    tweet_items = asyncio.run(fetch_tweets())
+    if tweet_items is None:
+        print("Error: Could not fetch tweets")
         sys.exit(1)
 
     posted = load_posted()
 
     # Collect new items, oldest first
     new_items = []
-    for entry in reversed(entries):
-        url = normalize_tweet_url(entry.link)
-        if url not in posted:
-            new_items.append((url, entry))
+    for item in reversed(tweet_items):
+        if item["url"] not in posted:
+            new_items.append(item)
 
     if not new_items:
         print("No new tweets to post")
@@ -127,32 +178,32 @@ def main():
     print(f"Found {len(new_items)} new tweet(s) to post")
 
     # Login to Bluesky
-    client = Client()
+    bsky_client = Client()
     try:
-        client.login(BSKY_HANDLE, password)
+        bsky_client.login(BSKY_HANDLE, bsky_password)
         print(f"Logged in to Bluesky as {BSKY_HANDLE}")
     except Exception as e:
         print(f"Error logging in to Bluesky: {e}")
         sys.exit(1)
 
     # Post each new item
-    for i, (url, entry) in enumerate(new_items):
-        text = clean_tweet_text(entry.title if entry.title else "")
+    for i, item in enumerate(new_items):
+        text = clean_tweet_text(item["text"])
+        url = item["url"]
         post_text = format_post(text, url)
 
         print(f"\nPosting ({i + 1}/{len(new_items)}): {url}")
         print(f"  Text: {post_text[:80]}...")
 
         try:
-            rich_text = create_rich_post(client, post_text, url)
-            client.send_post(rich_text)
+            rich_text = create_rich_post(bsky_client, post_text, url)
+            bsky_client.send_post(rich_text)
             save_posted(url)
             print("  Posted successfully")
         except Exception as e:
             print(f"  Error posting: {e}")
             continue
 
-        # Delay between posts to avoid rate limits
         if i < len(new_items) - 1:
             print(f"  Waiting {POST_DELAY}s before next post...")
             time.sleep(POST_DELAY)
