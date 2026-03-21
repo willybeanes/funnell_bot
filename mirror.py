@@ -23,6 +23,8 @@ POSTED_FILE = Path(__file__).parent / "posted.txt"
 POSTED_MAP_FILE = Path(__file__).parent / "posted_map.json"
 BSKY_CHAR_LIMIT = 300
 POST_DELAY = 5
+FETCH_MAX_RETRIES = 3
+FETCH_BACKOFF_BASE = 10  # seconds; will retry at 10s, 20s, 40s
 TWITTER_USERNAME = "sportz_nutt51"
 
 SYNDICATION_URL = (
@@ -76,7 +78,10 @@ def record_posted(tweet_id: str, tweet_url: str, bsky_uri: str, bsky_cid: str,
 # --- Tweet fetching ---
 
 def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets via Twitter's syndication/embed endpoint."""
+    """Fetch recent tweets via Twitter's syndication/embed endpoint.
+
+    Retries with exponential backoff on 429 (rate limit) responses.
+    """
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -85,12 +90,32 @@ def fetch_tweets() -> list[dict] | None:
         ),
     }
 
-    try:
-        resp = httpx.get(SYNDICATION_URL, headers=headers, timeout=30, follow_redirects=True)
-        resp.raise_for_status()
-    except Exception as e:
-        print(f"Error fetching syndication page: {e}")
-        return None
+    resp = None
+    for attempt in range(1, FETCH_MAX_RETRIES + 1):
+        try:
+            resp = httpx.get(SYNDICATION_URL, headers=headers, timeout=30, follow_redirects=True)
+            if resp.status_code == 429:
+                wait = FETCH_BACKOFF_BASE * (2 ** (attempt - 1))
+                print(f"Rate-limited (429). Retry {attempt}/{FETCH_MAX_RETRIES} in {wait}s...")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            break  # success
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                wait = FETCH_BACKOFF_BASE * (2 ** (attempt - 1))
+                print(f"Rate-limited (429). Retry {attempt}/{FETCH_MAX_RETRIES} in {wait}s...")
+                time.sleep(wait)
+                continue
+            print(f"Error fetching syndication page: {e}")
+            return None
+        except Exception as e:
+            print(f"Error fetching syndication page: {e}")
+            return None
+
+    if resp is None or resp.status_code == 429:
+        print("Error: Still rate-limited after all retries")
+        return "rate_limited"
 
     soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -276,7 +301,7 @@ def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, new_items: list[di
 def seed():
     """Mark all current tweets as already posted, so only future tweets get mirrored."""
     tweet_items = fetch_tweets()
-    if tweet_items is None:
+    if tweet_items is None or tweet_items == "rate_limited":
         print("Error: Could not fetch tweets for seeding")
         sys.exit(1)
 
@@ -308,6 +333,9 @@ def main():
 
     # Fetch tweets
     tweet_items = fetch_tweets()
+    if tweet_items == "rate_limited":
+        print("Skipping this run due to rate limiting. Will retry next scheduled run.")
+        return
     if tweet_items is None:
         print("Error: Could not fetch tweets")
         sys.exit(1)
