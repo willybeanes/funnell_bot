@@ -27,10 +27,17 @@ FETCH_MAX_RETRIES = 3
 FETCH_BACKOFF_BASE = 10  # seconds; will retry at 10s, 20s, 40s
 TWITTER_USERNAME = "sportz_nutt51"
 
-NITTER_INSTANCE = os.environ.get(
-    "NITTER_INSTANCE", "https://nitter.privacyredirect.com"
-)
-NITTER_RSS_URL = f"{NITTER_INSTANCE}/{TWITTER_USERNAME}/rss"
+NITTER_INSTANCES = [
+    "https://nitter.privacyredirect.com",
+    "https://nitter.poast.org",
+    "https://nitter.woodland.cafe",
+    "https://nitter.perennialte.ch",
+    "https://nitter.1d4.us",
+]
+# Allow env var override to prepend a preferred instance
+_env_instance = os.environ.get("NITTER_INSTANCE")
+if _env_instance:
+    NITTER_INSTANCES = [_env_instance] + [u for u in NITTER_INSTANCES if u != _env_instance]
 FXTWITTER_API = "https://api.fxtwitter.com"
 
 
@@ -127,9 +134,47 @@ def _enrich_with_fxtwitter(tweet: dict) -> dict:
     return tweet
 
 
-def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets via a Nitter instance's RSS feed.
+def _try_fetch_rss(rss_url: str, headers: dict) -> tuple[str, httpx.Response | None]:
+    """Try fetching RSS from a single instance with retry on 429.
 
+    Returns (status, response) where status is one of:
+    "ok", "rate_limited", "error"
+    """
+    resp = None
+    for attempt in range(1, FETCH_MAX_RETRIES + 1):
+        try:
+            resp = httpx.get(rss_url, headers=headers, timeout=30, follow_redirects=True)
+            if resp.status_code == 429:
+                wait = FETCH_BACKOFF_BASE * (2 ** (attempt - 1))
+                print(f"  Rate-limited (429). Retry {attempt}/{FETCH_MAX_RETRIES} in {wait}s...")
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            # Verify we got XML, not an HTML error page
+            content = resp.text.strip()
+            if not content.startswith("<?xml") and not content.startswith("<rss") and not content.startswith("<feed"):
+                print(f"  Response is not valid RSS/XML (starts with: {content[:50]!r})")
+                return ("error", None)
+            return ("ok", resp)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                wait = FETCH_BACKOFF_BASE * (2 ** (attempt - 1))
+                print(f"  Rate-limited (429). Retry {attempt}/{FETCH_MAX_RETRIES} in {wait}s...")
+                time.sleep(wait)
+                continue
+            print(f"  HTTP error: {e}")
+            return ("error", None)
+        except Exception as e:
+            print(f"  Request error: {e}")
+            return ("error", None)
+
+    return ("rate_limited", None)
+
+
+def fetch_tweets() -> list[dict] | None:
+    """Fetch recent tweets via Nitter RSS, trying multiple instances.
+
+    Cycles through NITTER_INSTANCES until one returns valid RSS.
     Retries with exponential backoff on 429 (rate limit) responses.
     """
     headers = {
@@ -141,31 +186,28 @@ def fetch_tweets() -> list[dict] | None:
     }
 
     resp = None
-    for attempt in range(1, FETCH_MAX_RETRIES + 1):
-        try:
-            resp = httpx.get(NITTER_RSS_URL, headers=headers, timeout=30, follow_redirects=True)
-            if resp.status_code == 429:
-                wait = FETCH_BACKOFF_BASE * (2 ** (attempt - 1))
-                print(f"Rate-limited (429). Retry {attempt}/{FETCH_MAX_RETRIES} in {wait}s...")
-                time.sleep(wait)
-                continue
-            resp.raise_for_status()
-            break  # success
-        except httpx.HTTPStatusError as e:
-            if e.response.status_code == 429:
-                wait = FETCH_BACKOFF_BASE * (2 ** (attempt - 1))
-                print(f"Rate-limited (429). Retry {attempt}/{FETCH_MAX_RETRIES} in {wait}s...")
-                time.sleep(wait)
-                continue
-            print(f"Error fetching Nitter RSS: {e}")
-            return None
-        except Exception as e:
-            print(f"Error fetching Nitter RSS: {e}")
-            return None
+    all_rate_limited = True
+    for instance in NITTER_INSTANCES:
+        rss_url = f"{instance}/{TWITTER_USERNAME}/rss"
+        print(f"Trying Nitter instance: {instance}")
+        status, resp = _try_fetch_rss(rss_url, headers)
+        if status == "ok":
+            all_rate_limited = False
+            break
+        elif status == "error":
+            all_rate_limited = False
+            print(f"  Instance {instance} failed, trying next...")
+            continue
+        else:  # rate_limited
+            print(f"  Instance {instance} rate-limited, trying next...")
+            continue
 
-    if resp is None or resp.status_code == 429:
-        print("Error: Still rate-limited after all retries")
-        return "rate_limited"
+    if resp is None:
+        if all_rate_limited:
+            print("Error: All Nitter instances are rate-limited")
+            return "rate_limited"
+        print("Error: All Nitter instances failed")
+        return None
 
     try:
         root = ElementTree.fromstring(resp.text)
