@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Twitter-to-Bluesky mirroring bot using a Nitter RSS feed.
+"""Twitter-to-Bluesky mirroring bot.
+
+Fetches tweets via Nitter RSS (multiple instances) with automatic fallback
+to Twitter's syndication timeline API + FxTwitter for content.
 
 Supports:
 - Quote tweets (inline quoted text)
@@ -231,20 +234,107 @@ def _parse_rss_items(rss_text: str) -> list[dict] | None:
     return results
 
 
-def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets via Nitter RSS, trying multiple instances.
+def _fetch_via_syndication() -> list[dict] | None:
+    """Fallback: fetch tweets via Twitter's syndication timeline API.
 
-    Cycles through NITTER_INSTANCES until one returns valid, parseable RSS.
-    Retries with exponential backoff on 429 (rate limit) responses.
+    Uses syndication.twitter.com to discover tweet IDs (no auth required),
+    then fetches full tweet data from the FxTwitter API.
     """
+    url = (
+        f"https://syndication.twitter.com/srv/timeline-profile/"
+        f"screen-name/{TWITTER_USERNAME}"
+    )
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
             "AppleWebKit/537.36 (KHTML, like Gecko) "
             "Chrome/120.0.0.0 Safari/537.36"
         ),
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.9",
     }
 
+    print("Trying Twitter syndication timeline API...")
+    try:
+        resp = httpx.get(url, headers=headers, timeout=30, follow_redirects=True)
+        resp.raise_for_status()
+    except Exception as e:
+        print(f"  Syndication API request failed: {e}")
+        return None
+
+    html = resp.text
+
+    # Extract unique tweet IDs from status links in the HTML
+    tweet_ids = list(dict.fromkeys(re.findall(r"/status/(\d+)", html)))
+    if not tweet_ids:
+        print(f"  No tweet IDs found in syndication HTML ({len(html)} bytes)")
+        return None
+
+    print(f"  Found {len(tweet_ids)} tweet ID(s) from syndication, fetching via FxTwitter...")
+
+    results = []
+    for tweet_id in tweet_ids:
+        tweet_url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet_id}"
+        try:
+            fx_resp = httpx.get(
+                f"{FXTWITTER_API}/{TWITTER_USERNAME}/status/{tweet_id}",
+                timeout=10,
+                follow_redirects=True,
+            )
+            if fx_resp.status_code != 200:
+                print(f"  FxTwitter returned {fx_resp.status_code} for {tweet_id}")
+                continue
+            data = fx_resp.json()
+        except Exception as e:
+            print(f"  FxTwitter fetch failed for {tweet_id}: {e}")
+            continue
+
+        status = data.get("tweet") or {}
+        text = status.get("text", "").strip()
+        if not text:
+            continue
+
+        tweet = {
+            "text": text,
+            "url": tweet_url,
+            "id": str(tweet_id),
+            "quoted_text": None,
+            "quoted_user": None,
+            "reply_to_tweet_id": None,
+        }
+
+        # Extract quote tweet
+        quote = status.get("quote")
+        if quote:
+            tweet["quoted_text"] = quote.get("text")
+            author = quote.get("author") or {}
+            tweet["quoted_user"] = author.get("screen_name")
+
+        # Extract reply-to info
+        replying_to = status.get("replying_to")
+        if replying_to and isinstance(replying_to, dict):
+            parent_id = replying_to.get("post")
+            if parent_id:
+                tweet["reply_to_tweet_id"] = str(parent_id)
+        elif replying_to and isinstance(replying_to, str):
+            parent_id = status.get("replying_to_status")
+            if parent_id:
+                tweet["reply_to_tweet_id"] = str(parent_id)
+
+        results.append(tweet)
+
+    if results:
+        print(f"  Fetched {len(results)} tweets via syndication + FxTwitter")
+    else:
+        print("  No usable tweets from syndication + FxTwitter")
+    return results if results else None
+
+
+def _fetch_via_nitter(headers: dict) -> list[dict] | str | None:
+    """Try fetching tweets from Nitter RSS instances.
+
+    Returns list of tweets, "rate_limited", or None.
+    """
     all_rate_limited = True
     for instance in NITTER_INSTANCES:
         rss_url = f"{instance}/{TWITTER_USERNAME}/rss"
@@ -255,13 +345,6 @@ def fetch_tweets() -> list[dict] | None:
             results = _parse_rss_items(resp.text)
             if results:
                 print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME} via {instance}")
-                # Enrich with quote-tweet and reply data from FixTweet API
-                print("Enriching tweets with quote/reply data via FixTweet API...")
-                for i, tweet in enumerate(results):
-                    results[i] = _enrich_with_fxtwitter(tweet)
-                enriched = sum(1 for t in results if t.get("quoted_text") or t.get("reply_to_tweet_id"))
-                if enriched:
-                    print(f"  Enriched {enriched} tweet(s) with quote/reply metadata")
                 return results
             print(f"  Instance {instance} returned RSS but no usable tweets, trying next...")
             continue
@@ -274,9 +357,44 @@ def fetch_tweets() -> list[dict] | None:
             continue
 
     if all_rate_limited:
-        print("Error: All Nitter instances are rate-limited")
+        print("All Nitter instances are rate-limited")
         return "rate_limited"
-    print("Error: All Nitter instances failed to return usable RSS")
+    print("All Nitter instances failed to return usable RSS")
+    return None
+
+
+def fetch_tweets() -> list[dict] | None:
+    """Fetch recent tweets, trying Nitter RSS then syndication API fallback."""
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    }
+
+    # --- Source 1: Nitter RSS ---
+    nitter_result = _fetch_via_nitter(headers)
+    if isinstance(nitter_result, list) and nitter_result:
+        # Enrich with quote-tweet and reply data from FixTweet API
+        print("Enriching tweets with quote/reply data via FixTweet API...")
+        for i, tweet in enumerate(nitter_result):
+            nitter_result[i] = _enrich_with_fxtwitter(tweet)
+        enriched = sum(1 for t in nitter_result if t.get("quoted_text") or t.get("reply_to_tweet_id"))
+        if enriched:
+            print(f"  Enriched {enriched} tweet(s) with quote/reply metadata")
+        return nitter_result
+
+    # --- Source 2: Twitter syndication API + FxTwitter ---
+    # (syndication for discovery, FxTwitter for content — already enriched)
+    print("\nNitter unavailable, falling back to syndication API...")
+    syndication_result = _fetch_via_syndication()
+    if syndication_result:
+        return syndication_result
+
+    # All sources exhausted
+    if nitter_result == "rate_limited":
+        return "rate_limited"
     return None
 
 
