@@ -31,6 +31,7 @@ NITTER_INSTANCE = os.environ.get(
     "NITTER_INSTANCE", "https://nitter.privacyredirect.com"
 )
 NITTER_RSS_URL = f"{NITTER_INSTANCE}/{TWITTER_USERNAME}/rss"
+FXTWITTER_API = "https://api.fxtwitter.com"
 
 
 # --- State tracking ---
@@ -81,6 +82,49 @@ def _extract_tweet_id_from_nitter_link(link: str) -> str | None:
     """Extract tweet ID from a Nitter RSS link like .../username/status/123456#m."""
     match = re.search(r"/status/(\d+)", link)
     return match.group(1) if match else None
+
+
+def _enrich_with_fxtwitter(tweet: dict) -> dict:
+    """Fetch quote-tweet and reply metadata from the FixTweet API.
+
+    Populates quoted_text, quoted_user, and reply_to_tweet_id when available.
+    Falls back silently so RSS data is still usable if the API is down.
+    """
+    tweet_id = tweet["id"]
+    url = f"{FXTWITTER_API}/{TWITTER_USERNAME}/status/{tweet_id}"
+    try:
+        resp = httpx.get(url, timeout=10, follow_redirects=True)
+        if resp.status_code != 200:
+            print(f"  FxTwitter API returned {resp.status_code} for tweet {tweet_id}")
+            return tweet
+        data = resp.json()
+    except Exception as e:
+        print(f"  FxTwitter enrichment failed for tweet {tweet_id}: {e}")
+        return tweet
+
+    status = data.get("tweet") or {}
+
+    # Extract quote tweet
+    quote = status.get("quote")
+    if quote:
+        tweet["quoted_text"] = quote.get("text")
+        author = quote.get("author") or {}
+        tweet["quoted_user"] = author.get("screen_name")
+
+    # Extract reply-to info
+    replying_to = status.get("replying_to")
+    if replying_to and isinstance(replying_to, dict):
+        parent_id = replying_to.get("post")
+        if parent_id:
+            tweet["reply_to_tweet_id"] = str(parent_id)
+    elif replying_to and isinstance(replying_to, str):
+        # Legacy format: replying_to is just the screen_name
+        # Check replying_to_status for the tweet ID
+        parent_id = status.get("replying_to_status")
+        if parent_id:
+            tweet["reply_to_tweet_id"] = str(parent_id)
+
+    return tweet
 
 
 def fetch_tweets() -> list[dict] | None:
@@ -167,7 +211,18 @@ def fetch_tweets() -> list[dict] | None:
         })
 
     print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME} via Nitter RSS")
-    return results if results else None
+    if not results:
+        return None
+
+    # Enrich each tweet with quote-tweet and reply data from FixTweet API
+    print("Enriching tweets with quote/reply data via FixTweet API...")
+    for i, tweet in enumerate(results):
+        results[i] = _enrich_with_fxtwitter(tweet)
+    enriched = sum(1 for t in results if t.get("quoted_text") or t.get("reply_to_tweet_id"))
+    if enriched:
+        print(f"  Enriched {enriched} tweet(s) with quote/reply metadata")
+
+    return results
 
 
 # --- Bluesky posting ---
