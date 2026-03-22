@@ -28,10 +28,12 @@ FETCH_BACKOFF_BASE = 10  # seconds; will retry at 10s, 20s, 40s
 TWITTER_USERNAME = "sportz_nutt51"
 
 NITTER_INSTANCES = [
-    "https://nitter.privacyredirect.com",
+    "https://xcancel.com",
     "https://nitter.poast.org",
+    "https://nitter.privacydev.net",
+    "https://nitter.cz",
     "https://nitter.woodland.cafe",
-    "https://nitter.perennialte.ch",
+    "https://nitter.privacyredirect.com",
     "https://nitter.1d4.us",
 ]
 # Allow env var override to prepend a preferred instance
@@ -153,7 +155,21 @@ def _try_fetch_rss(rss_url: str, headers: dict) -> tuple[str, httpx.Response | N
             # Verify we got XML, not an HTML error page
             content = resp.text.strip()
             if not content.startswith("<?xml") and not content.startswith("<rss") and not content.startswith("<feed"):
-                print(f"  Response is not valid RSS/XML (starts with: {content[:50]!r})")
+                print(f"  Response is not valid RSS/XML (starts with: {content[:80]!r})")
+                return ("error", None)
+            # Verify we can actually parse the XML
+            try:
+                root = ElementTree.fromstring(content)
+            except ElementTree.ParseError as e:
+                print(f"  Response looks like XML but failed to parse: {e}")
+                return ("error", None)
+            channel = root.find("channel")
+            if channel is None:
+                print(f"  RSS has no <channel> element")
+                return ("error", None)
+            items = channel.findall("item")
+            if not items:
+                print(f"  RSS feed is valid but has 0 items")
                 return ("error", None)
             return ("ok", resp)
         except httpx.HTTPStatusError as e:
@@ -171,46 +187,11 @@ def _try_fetch_rss(rss_url: str, headers: dict) -> tuple[str, httpx.Response | N
     return ("rate_limited", None)
 
 
-def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets via Nitter RSS, trying multiple instances.
-
-    Cycles through NITTER_INSTANCES until one returns valid RSS.
-    Retries with exponential backoff on 429 (rate limit) responses.
-    """
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-    }
-
-    resp = None
-    all_rate_limited = True
-    for instance in NITTER_INSTANCES:
-        rss_url = f"{instance}/{TWITTER_USERNAME}/rss"
-        print(f"Trying Nitter instance: {instance}")
-        status, resp = _try_fetch_rss(rss_url, headers)
-        if status == "ok":
-            all_rate_limited = False
-            break
-        elif status == "error":
-            all_rate_limited = False
-            print(f"  Instance {instance} failed, trying next...")
-            continue
-        else:  # rate_limited
-            print(f"  Instance {instance} rate-limited, trying next...")
-            continue
-
-    if resp is None:
-        if all_rate_limited:
-            print("Error: All Nitter instances are rate-limited")
-            return "rate_limited"
-        print("Error: All Nitter instances failed")
-        return None
-
+def _parse_rss_items(rss_text: str) -> list[dict] | None:
+    """Parse Nitter RSS XML into a list of tweet dicts."""
+    content = rss_text.strip()
     try:
-        root = ElementTree.fromstring(resp.text)
+        root = ElementTree.fromstring(content)
     except ElementTree.ParseError as e:
         print(f"Error parsing RSS XML: {e}")
         return None
@@ -230,19 +211,14 @@ def fetch_tweets() -> list[dict] | None:
         if not tweet_id:
             continue
 
-        # The <title> holds the plain-text tweet content
         text = (item.findtext("title") or "").strip()
         if not text:
             continue
 
-        # Determine author — dc:creator gives "@username"
         creator = (item.findtext(f"{{{DC_NS}}}creator") or "").strip().lstrip("@")
         screen_name = creator or TWITTER_USERNAME
         tweet_url = f"https://x.com/{screen_name}/status/{tweet_id}"
 
-        # Nitter RSS doesn't include structured quote-tweet or reply metadata,
-        # but we can detect retweets (title starts with "RT by @user")
-        # and self-replies won't be available via RSS.
         results.append({
             "text": text,
             "url": tweet_url,
@@ -252,19 +228,56 @@ def fetch_tweets() -> list[dict] | None:
             "reply_to_tweet_id": None,
         })
 
-    print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME} via Nitter RSS")
-    if not results:
-        return None
-
-    # Enrich each tweet with quote-tweet and reply data from FixTweet API
-    print("Enriching tweets with quote/reply data via FixTweet API...")
-    for i, tweet in enumerate(results):
-        results[i] = _enrich_with_fxtwitter(tweet)
-    enriched = sum(1 for t in results if t.get("quoted_text") or t.get("reply_to_tweet_id"))
-    if enriched:
-        print(f"  Enriched {enriched} tweet(s) with quote/reply metadata")
-
     return results
+
+
+def fetch_tweets() -> list[dict] | None:
+    """Fetch recent tweets via Nitter RSS, trying multiple instances.
+
+    Cycles through NITTER_INSTANCES until one returns valid, parseable RSS.
+    Retries with exponential backoff on 429 (rate limit) responses.
+    """
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+    }
+
+    all_rate_limited = True
+    for instance in NITTER_INSTANCES:
+        rss_url = f"{instance}/{TWITTER_USERNAME}/rss"
+        print(f"Trying Nitter instance: {instance}")
+        status, resp = _try_fetch_rss(rss_url, headers)
+        if status == "ok":
+            all_rate_limited = False
+            results = _parse_rss_items(resp.text)
+            if results:
+                print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME} via {instance}")
+                # Enrich with quote-tweet and reply data from FixTweet API
+                print("Enriching tweets with quote/reply data via FixTweet API...")
+                for i, tweet in enumerate(results):
+                    results[i] = _enrich_with_fxtwitter(tweet)
+                enriched = sum(1 for t in results if t.get("quoted_text") or t.get("reply_to_tweet_id"))
+                if enriched:
+                    print(f"  Enriched {enriched} tweet(s) with quote/reply metadata")
+                return results
+            print(f"  Instance {instance} returned RSS but no usable tweets, trying next...")
+            continue
+        elif status == "error":
+            all_rate_limited = False
+            print(f"  Instance {instance} failed, trying next...")
+            continue
+        else:  # rate_limited
+            print(f"  Instance {instance} rate-limited, trying next...")
+            continue
+
+    if all_rate_limited:
+        print("Error: All Nitter instances are rate-limited")
+        return "rate_limited"
+    print("Error: All Nitter instances failed to return usable RSS")
+    return None
 
 
 # --- Bluesky posting ---
@@ -411,8 +424,8 @@ def main():
         print("Skipping this run due to rate limiting. Will retry next scheduled run.")
         return
     if tweet_items is None:
-        print("Error: Could not fetch tweets")
-        sys.exit(1)
+        print("Warning: Could not fetch tweets from any source. Will retry next run.")
+        return
 
     posted_map = load_posted_map()
     posted_urls = load_posted_urls()
