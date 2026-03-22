@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Twitter-to-Bluesky mirroring bot using Twitter's syndication endpoint.
+"""Twitter-to-Bluesky mirroring bot using a Nitter RSS feed.
 
 Supports:
 - Quote tweets (inline quoted text)
@@ -13,10 +13,10 @@ import re
 import sys
 import time
 from pathlib import Path
+from xml.etree import ElementTree
 
 import httpx
 from atproto import Client, client_utils, models
-from bs4 import BeautifulSoup
 
 BSKY_HANDLE = "sportz-nutt51-bot.bsky.social"
 POSTED_FILE = Path(__file__).parent / "posted.txt"
@@ -27,10 +27,10 @@ FETCH_MAX_RETRIES = 3
 FETCH_BACKOFF_BASE = 10  # seconds; will retry at 10s, 20s, 40s
 TWITTER_USERNAME = "sportz_nutt51"
 
-SYNDICATION_URL = (
-    f"https://syndication.twitter.com/srv/timeline-profile/"
-    f"screen-name/{TWITTER_USERNAME}"
+NITTER_INSTANCE = os.environ.get(
+    "NITTER_INSTANCE", "https://nitter.privacyredirect.com"
 )
+NITTER_RSS_URL = f"{NITTER_INSTANCE}/{TWITTER_USERNAME}/rss"
 
 
 # --- State tracking ---
@@ -77,8 +77,14 @@ def record_posted(tweet_id: str, tweet_url: str, bsky_uri: str, bsky_cid: str,
 
 # --- Tweet fetching ---
 
+def _extract_tweet_id_from_nitter_link(link: str) -> str | None:
+    """Extract tweet ID from a Nitter RSS link like .../username/status/123456#m."""
+    match = re.search(r"/status/(\d+)", link)
+    return match.group(1) if match else None
+
+
 def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets via Twitter's syndication/embed endpoint.
+    """Fetch recent tweets via a Nitter instance's RSS feed.
 
     Retries with exponential backoff on 429 (rate limit) responses.
     """
@@ -93,7 +99,7 @@ def fetch_tweets() -> list[dict] | None:
     resp = None
     for attempt in range(1, FETCH_MAX_RETRIES + 1):
         try:
-            resp = httpx.get(SYNDICATION_URL, headers=headers, timeout=30, follow_redirects=True)
+            resp = httpx.get(NITTER_RSS_URL, headers=headers, timeout=30, follow_redirects=True)
             if resp.status_code == 429:
                 wait = FETCH_BACKOFF_BASE * (2 ** (attempt - 1))
                 print(f"Rate-limited (429). Retry {attempt}/{FETCH_MAX_RETRIES} in {wait}s...")
@@ -107,89 +113,60 @@ def fetch_tweets() -> list[dict] | None:
                 print(f"Rate-limited (429). Retry {attempt}/{FETCH_MAX_RETRIES} in {wait}s...")
                 time.sleep(wait)
                 continue
-            print(f"Error fetching syndication page: {e}")
+            print(f"Error fetching Nitter RSS: {e}")
             return None
         except Exception as e:
-            print(f"Error fetching syndication page: {e}")
+            print(f"Error fetching Nitter RSS: {e}")
             return None
 
     if resp is None or resp.status_code == 429:
         print("Error: Still rate-limited after all retries")
         return "rate_limited"
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    script = soup.find("script", {"id": "__NEXT_DATA__"})
-    if not script:
-        print("Error: Could not find tweet data in syndication page")
-        print(f"Page length: {len(resp.text)} chars")
-        return None
-
     try:
-        data = json.loads(script.string)
-    except json.JSONDecodeError as e:
-        print(f"Error parsing JSON: {e}")
+        root = ElementTree.fromstring(resp.text)
+    except ElementTree.ParseError as e:
+        print(f"Error parsing RSS XML: {e}")
         return None
 
-    try:
-        timeline = data["props"]["pageProps"]["timeline"]
-        entries = timeline.get("entries", [])
-    except (KeyError, TypeError) as e:
-        print(f"Error navigating tweet data: {e}")
+    channel = root.find("channel")
+    if channel is None:
+        print("Error: No <channel> in RSS feed")
         return None
 
-    # Determine the user's own ID for self-reply detection
-    user_id = None
-    for entry in entries:
-        content = entry.get("content", {})
-        tweet = content.get("tweet", content)
-        if tweet.get("user", {}).get("screen_name", "").lower() == TWITTER_USERNAME.lower():
-            user_id = tweet["user"].get("id_str")
-            break
+    DC_NS = "http://purl.org/dc/elements/1.1/"
+    items = channel.findall("item")
 
     results = []
-    for entry in entries:
-        content = entry.get("content", {})
-        tweet = content.get("tweet", content)
-
-        tweet_id = tweet.get("id_str") or tweet.get("id")
-        text = tweet.get("text", "")
-
-        if not tweet_id or not text:
+    for item in items:
+        link = (item.findtext("link") or "").strip()
+        tweet_id = _extract_tweet_id_from_nitter_link(link)
+        if not tweet_id:
             continue
 
-        screen_name = TWITTER_USERNAME
-        user_data = tweet.get("user", {})
-        if user_data.get("screen_name"):
-            screen_name = user_data["screen_name"]
+        # The <title> holds the plain-text tweet content
+        text = (item.findtext("title") or "").strip()
+        if not text:
+            continue
 
+        # Determine author — dc:creator gives "@username"
+        creator = (item.findtext(f"{{{DC_NS}}}creator") or "").strip().lstrip("@")
+        screen_name = creator or TWITTER_USERNAME
         tweet_url = f"https://x.com/{screen_name}/status/{tweet_id}"
 
-        # Quote tweet data
-        quoted_text = None
-        quoted_user = None
-        if tweet.get("is_quote_status") and tweet.get("quoted_status"):
-            qs = tweet["quoted_status"]
-            quoted_text = qs.get("full_text") or qs.get("text", "")
-            qs_user = qs.get("user", {})
-            quoted_user = qs_user.get("screen_name")
-
-        # Thread detection: is this a self-reply?
-        reply_to_tweet_id = None
-        reply_to_user = tweet.get("in_reply_to_user_id_str")
-        if reply_to_user and reply_to_user == user_id:
-            reply_to_tweet_id = tweet.get("in_reply_to_status_id_str")
-
+        # Nitter RSS doesn't include structured quote-tweet or reply metadata,
+        # but we can detect retweets (title starts with "RT by @user")
+        # and self-replies won't be available via RSS.
         results.append({
             "text": text,
             "url": tweet_url,
             "id": str(tweet_id),
-            "quoted_text": quoted_text,
-            "quoted_user": quoted_user,
-            "reply_to_tweet_id": reply_to_tweet_id,
+            "quoted_text": None,
+            "quoted_user": None,
+            "reply_to_tweet_id": None,
         })
 
-    print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME}")
+    print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME} via Nitter RSS")
     return results if results else None
 
 
