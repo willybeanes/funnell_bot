@@ -26,7 +26,7 @@ jobs:
         timeout-minutes: 2
 
       - name: Run mirror bot
-        timeout-minutes: 5
+        timeout-minutes: 14
         env:
           BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
           TWITTER_COOKIES: ${{ secrets.TWITTER_COOKIES }}

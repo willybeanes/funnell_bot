@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -270,6 +271,16 @@ class TwitterClient:
             qt_user = qt_result.get("core", {}).get("user_results", {}).get("result", {}).get("legacy", {})
             quoted_user = qt_user.get("screen_name")
 
+        # Parse timestamp
+        created_at = legacy.get("created_at", "")
+        tweet_time = None
+        if created_at:
+            try:
+                # Twitter format: "Thu Mar 30 15:42:00 +0000 2026"
+                tweet_time = datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y").isoformat()
+            except ValueError:
+                pass
+
         # Thread detection: self-reply
         reply_to_tweet_id = None
         reply_to_user_id = legacy.get("in_reply_to_user_id_str")
@@ -284,6 +295,7 @@ class TwitterClient:
             "text": text,
             "url": tweet_url,
             "id": tweet_id,
+            "created_at": tweet_time,
             "quoted_text": quoted_text,
             "quoted_user": quoted_user,
             "reply_to_tweet_id": reply_to_tweet_id,
@@ -464,6 +476,29 @@ def main():
         print(f"Error logging in to Bluesky: {e}")
         sys.exit(1)
 
+    # Calculate realistic delays between posts based on tweet timestamps
+    MAX_TOTAL_DELAY = 13 * 60  # 13 min cap so we finish before next cron run
+    MIN_DELAY = 5  # minimum seconds between posts
+
+    delays = []
+    for i in range(1, len(new_items)):
+        prev_time = new_items[i - 1].get("created_at")
+        curr_time = new_items[i].get("created_at")
+        if prev_time and curr_time:
+            prev_dt = datetime.fromisoformat(prev_time)
+            curr_dt = datetime.fromisoformat(curr_time)
+            gap = (curr_dt - prev_dt).total_seconds()
+            delays.append(max(gap, MIN_DELAY))
+        else:
+            delays.append(MIN_DELAY)
+
+    # Scale delays down if total exceeds our cap
+    total_delay = sum(delays)
+    if total_delay > MAX_TOTAL_DELAY and delays:
+        scale = MAX_TOTAL_DELAY / total_delay
+        delays = [d * scale for d in delays]
+        print(f"Scaled delays to fit in {MAX_TOTAL_DELAY // 60}m (original total: {total_delay / 60:.1f}m)")
+
     for i, item in enumerate(new_items):
         text = clean_tweet_text(item["text"])
         url = item["url"]
@@ -501,9 +536,15 @@ def main():
                 f.write(url + "\n")
             continue
 
+        # Wait with realistic delay before next post
         if i < len(new_items) - 1:
-            print(f"  Waiting {POST_DELAY}s before next post...")
-            time.sleep(POST_DELAY)
+            delay = int(delays[i])
+            mins, secs = divmod(delay, 60)
+            if mins > 0:
+                print(f"  Waiting {mins}m {secs}s (matching tweet gap)...")
+            else:
+                print(f"  Waiting {secs}s (matching tweet gap)...")
+            time.sleep(delay)
 
     print("\nDone!")
 
