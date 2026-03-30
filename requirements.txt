@@ -1,2 +1,2 @@
 atproto==0.0.55
-twscrape==0.17.0
+twscrape @ git+https://github.com/vladkens/twscrape.git@main

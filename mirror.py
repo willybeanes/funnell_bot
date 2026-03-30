@@ -111,12 +111,30 @@ async def fetch_tweets() -> list[dict] | None:
         print(f"Error resolving @{TWITTER_USERNAME}: {e}")
         return None
 
-    # Fetch recent tweets
-    try:
-        tweets = await gather(api.user_tweets(user_id, limit=20))
-        print(f"Fetched {len(tweets)} tweets from @{TWITTER_USERNAME}")
-    except Exception as e:
-        print(f"Error fetching tweets: {e}")
+    # Fetch recent tweets — try user_tweets first, fall back to user_tweets_and_replies
+    tweets = None
+    for method_name, method in [
+        ("user_tweets", api.user_tweets),
+        ("user_tweets_and_replies", api.user_tweets_and_replies),
+    ]:
+        try:
+            print(f"Trying {method_name}...")
+            tweets = await gather(method(user_id, limit=20))
+            if tweets:
+                print(f"Fetched {len(tweets)} tweets via {method_name}")
+                break
+            print(f"  {method_name} returned empty, trying next...")
+        except Exception as e:
+            print(f"  {method_name} failed: {e}")
+            # Reset account locks so the fallback method can try
+            try:
+                await api.pool.reset_locks()
+            except Exception:
+                pass
+            continue
+
+    if not tweets:
+        print("Error: Could not fetch tweets from any endpoint")
         return None
 
     results = []

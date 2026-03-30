@@ -29,8 +29,10 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
+        timeout-minutes: 3
 
       - name: Run mirror bot
+        timeout-minutes: 5
         env:
           BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
           TWITTER_USERNAME: ${{ secrets.TWITTER_USERNAME }}
