@@ -185,9 +185,8 @@ def format_post(text: str, tweet_url: str,
     suffix = f"\n\n🐦 {tweet_url}"
 
     if len(text) + len(suffix) > BSKY_CHAR_LIMIT:
-        truncation_marker = f"… [full tweet: {tweet_url}]"
-        available = BSKY_CHAR_LIMIT - len(truncation_marker) - len(suffix)
-        text = text[:available] + truncation_marker
+        available = BSKY_CHAR_LIMIT - len(suffix) - 1  # -1 for the …
+        text = text[:available] + "…"
 
     return text + suffix
 
