@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Twitter-to-Bluesky mirroring bot using Twitter's syndication endpoint.
+"""Twitter-to-Bluesky mirroring bot using twscrape for tweet fetching.
 
 Supports:
 - Quote tweets (inline quoted text)
 - Thread detection (self-replies become Bluesky reply chains)
+- Retweet detection (skipped or formatted with attribution)
 - Duplicate prevention via posted_map.json
 """
 
+import asyncio
 import json
 import os
 import re
@@ -14,9 +16,8 @@ import sys
 import time
 from pathlib import Path
 
-import httpx
 from atproto import Client, client_utils, models
-from bs4 import BeautifulSoup
+from twscrape import API, gather
 
 BSKY_HANDLE = "sportz-nutt51-bot.bsky.social"
 POSTED_FILE = Path(__file__).parent / "posted.txt"
@@ -24,11 +25,6 @@ POSTED_MAP_FILE = Path(__file__).parent / "posted_map.json"
 BSKY_CHAR_LIMIT = 300
 POST_DELAY = 5
 TWITTER_USERNAME = "sportz_nutt51"
-
-SYNDICATION_URL = (
-    f"https://syndication.twitter.com/srv/timeline-profile/"
-    f"screen-name/{TWITTER_USERNAME}"
-)
 
 
 # --- State tracking ---
@@ -58,7 +54,6 @@ def is_posted(tweet_id: str, posted_map: dict, posted_urls: set[str]) -> bool:
     """Check if a tweet has been posted (in either tracking file)."""
     if tweet_id in posted_map:
         return True
-    # Check legacy posted.txt by URL pattern
     url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet_id}"
     return url in posted_urls
 
@@ -68,103 +63,99 @@ def record_posted(tweet_id: str, tweet_url: str, bsky_uri: str, bsky_cid: str,
     """Record a posted tweet in both tracking files."""
     posted_map[tweet_id] = {"uri": bsky_uri, "cid": bsky_cid}
     save_posted_map(posted_map)
-    # Also append to posted.txt for backward compat
     with open(POSTED_FILE, "a") as f:
         f.write(tweet_url + "\n")
 
 
-# --- Tweet fetching ---
+# --- Tweet fetching via twscrape ---
 
-def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets via Twitter's syndication/embed endpoint."""
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        ),
-    }
+async def fetch_tweets() -> list[dict] | None:
+    """Fetch recent tweets using twscrape (Twitter's internal GraphQL API)."""
+    username = os.environ.get("TWITTER_USERNAME", "")
+    password = os.environ.get("TWITTER_PASSWORD", "")
+    email = os.environ.get("TWITTER_EMAIL", "")
+    cookies = os.environ.get("TWITTER_COOKIES", "")
 
+    if not cookies and not password:
+        print("Error: TWITTER_COOKIES or TWITTER_PASSWORD environment variable required")
+        return None
+
+    db_path = Path(__file__).parent / "accounts.db"
+    api = API(str(db_path))
+
+    # Add account if not already present
     try:
-        resp = httpx.get(SYNDICATION_URL, headers=headers, timeout=30, follow_redirects=True)
-        resp.raise_for_status()
+        if cookies:
+            await api.pool.add_account(
+                username, password or "", email or "", "",
+                cookies=cookies,
+            )
+        else:
+            await api.pool.add_account(username, password, email, "")
+            await api.pool.login_all()
+        print(f"Twitter account '{username}' ready")
     except Exception as e:
-        print(f"Error fetching syndication page: {e}")
-        return None
+        # Account may already be in the pool from a previous run
+        err_msg = str(e).lower()
+        if "unique" in err_msg or "already" in err_msg:
+            print(f"Twitter account '{username}' already in pool")
+        else:
+            print(f"Warning adding account: {e}")
 
-    soup = BeautifulSoup(resp.text, "html.parser")
-
-    script = soup.find("script", {"id": "__NEXT_DATA__"})
-    if not script:
-        print("Error: Could not find tweet data in syndication page")
-        print(f"Page length: {len(resp.text)} chars")
-        return None
-
+    # Resolve username to numeric ID
     try:
-        data = json.loads(script.string)
-    except json.JSONDecodeError as e:
-        print(f"Error parsing JSON: {e}")
+        user = await api.user_by_login(TWITTER_USERNAME)
+        user_id = user.id
+        print(f"Resolved @{TWITTER_USERNAME} -> ID {user_id}")
+    except Exception as e:
+        print(f"Error resolving @{TWITTER_USERNAME}: {e}")
         return None
 
+    # Fetch recent tweets
     try:
-        timeline = data["props"]["pageProps"]["timeline"]
-        entries = timeline.get("entries", [])
-    except (KeyError, TypeError) as e:
-        print(f"Error navigating tweet data: {e}")
+        tweets = await gather(api.user_tweets(user_id, limit=20))
+        print(f"Fetched {len(tweets)} tweets from @{TWITTER_USERNAME}")
+    except Exception as e:
+        print(f"Error fetching tweets: {e}")
         return None
-
-    # Determine the user's own ID for self-reply detection
-    user_id = None
-    for entry in entries:
-        content = entry.get("content", {})
-        tweet = content.get("tweet", content)
-        if tweet.get("user", {}).get("screen_name", "").lower() == TWITTER_USERNAME.lower():
-            user_id = tweet["user"].get("id_str")
-            break
 
     results = []
-    for entry in entries:
-        content = entry.get("content", {})
-        tweet = content.get("tweet", content)
+    for tweet in tweets:
+        tweet_id = str(tweet.id)
+        text = tweet.rawContent or ""
+        tweet_url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet_id}"
 
-        tweet_id = tweet.get("id_str") or tweet.get("id")
-        text = tweet.get("text", "")
-
-        if not tweet_id or not text:
+        # Skip pure retweets (we only want original content)
+        if tweet.retweetedTweet is not None:
             continue
-
-        screen_name = TWITTER_USERNAME
-        user_data = tweet.get("user", {})
-        if user_data.get("screen_name"):
-            screen_name = user_data["screen_name"]
-
-        tweet_url = f"https://x.com/{screen_name}/status/{tweet_id}"
 
         # Quote tweet data
         quoted_text = None
         quoted_user = None
-        if tweet.get("is_quote_status") and tweet.get("quoted_status"):
-            qs = tweet["quoted_status"]
-            quoted_text = qs.get("full_text") or qs.get("text", "")
-            qs_user = qs.get("user", {})
-            quoted_user = qs_user.get("screen_name")
+        if tweet.quotedTweet is not None:
+            quoted_text = tweet.quotedTweet.rawContent or ""
+            quoted_user = tweet.quotedTweet.user.username if tweet.quotedTweet.user else None
 
-        # Thread detection: is this a self-reply?
+        # Thread detection: self-reply
         reply_to_tweet_id = None
-        reply_to_user = tweet.get("in_reply_to_user_id_str")
-        if reply_to_user and reply_to_user == user_id:
-            reply_to_tweet_id = tweet.get("in_reply_to_status_id_str")
+        if tweet.inReplyToTweetId is not None:
+            # Check if it's a self-reply (thread) vs reply to someone else
+            if tweet.inReplyToUser and tweet.inReplyToUser.username.lower() == TWITTER_USERNAME.lower():
+                reply_to_tweet_id = str(tweet.inReplyToTweetId)
+            else:
+                # Reply to someone else — skip
+                continue
 
         results.append({
             "text": text,
             "url": tweet_url,
-            "id": str(tweet_id),
+            "id": tweet_id,
             "quoted_text": quoted_text,
             "quoted_user": quoted_user,
             "reply_to_tweet_id": reply_to_tweet_id,
         })
 
-    print(f"Fetched {len(results)} tweets from @{TWITTER_USERNAME}")
+    print(f"  {len(results)} original tweets/threads (skipped retweets and replies to others)")
     return results if results else None
 
 
@@ -172,6 +163,8 @@ def fetch_tweets() -> list[dict] | None:
 
 def clean_tweet_text(text: str) -> str:
     text = re.sub(r"^RT @\w+:\s*", "", text)
+    # Remove t.co links at the end (Twitter appends these for quote tweets)
+    text = re.sub(r"\s*https://t\.co/\w+\s*$", "", text)
     return text.strip()
 
 
@@ -208,12 +201,8 @@ def create_rich_post(client: Client, post_text: str, tweet_url: str):
     return tb
 
 
-def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, new_items: list[dict]):
-    """Build the Bluesky reply reference for a thread reply.
-
-    Walks back the self-reply chain to find the root post, then returns
-    a ReplyRef with root and parent references.
-    """
+def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, all_items: list[dict]):
+    """Build the Bluesky reply reference for a thread reply."""
     parent_id = reply_to_tweet_id
 
     if parent_id not in posted_map:
@@ -222,31 +211,22 @@ def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, new_items: list[di
     parent_uri = posted_map[parent_id]["uri"]
     parent_cid = posted_map[parent_id]["cid"]
 
+    if not parent_uri or not parent_cid:
+        return None
+
     # Walk back to find the thread root
-    root_id = parent_id
-    # Build a lookup of reply chains from fetched tweets
     reply_chain = {}
-    for item in new_items:
+    for item in all_items:
         if item.get("reply_to_tweet_id"):
             reply_chain[item["id"]] = item["reply_to_tweet_id"]
 
-    # Walk up the chain to find root
+    root_id = parent_id
     visited = set()
-    current = root_id
-    while current in reply_chain and current not in visited:
-        visited.add(current)
-        current = reply_chain[current]
-    # Also check posted_map for earlier thread parts
-    # The root is the first post in the chain that isn't a reply to another posted tweet
-    # For simplicity, walk up through posted_map
-    visited.clear()
     current = root_id
     while current not in visited:
         visited.add(current)
-        # Check if this tweet is itself a reply to another posted tweet
-        # We need to look at the fetched data
         found_parent = None
-        for item in new_items:
+        for item in all_items:
             if item["id"] == current and item.get("reply_to_tweet_id"):
                 found_parent = item["reply_to_tweet_id"]
                 break
@@ -256,11 +236,10 @@ def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, new_items: list[di
             break
 
     root_id = current
-    if root_id in posted_map:
+    if root_id in posted_map and posted_map[root_id]["uri"]:
         root_uri = posted_map[root_id]["uri"]
         root_cid = posted_map[root_id]["cid"]
     else:
-        # Root not in our records, use parent as root
         root_uri = parent_uri
         root_cid = parent_cid
 
@@ -274,7 +253,7 @@ def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, new_items: list[di
 
 def seed():
     """Mark all current tweets as already posted, so only future tweets get mirrored."""
-    tweet_items = fetch_tweets()
+    tweet_items = asyncio.run(fetch_tweets())
     if tweet_items is None:
         print("Error: Could not fetch tweets for seeding")
         sys.exit(1)
@@ -284,7 +263,6 @@ def seed():
     count = 0
     for item in tweet_items:
         if not is_posted(item["id"], posted_map, posted_urls):
-            # Seed with empty uri/cid since we didn't actually post these
             posted_map[item["id"]] = {"uri": "", "cid": ""}
             with open(POSTED_FILE, "a") as f:
                 f.write(item["url"] + "\n")
@@ -306,7 +284,7 @@ def main():
         sys.exit(1)
 
     # Fetch tweets
-    tweet_items = fetch_tweets()
+    tweet_items = asyncio.run(fetch_tweets())
     if tweet_items is None:
         print("Error: Could not fetch tweets")
         sys.exit(1)
@@ -326,7 +304,6 @@ def main():
 
     print(f"Found {len(new_items)} new tweet(s) to post")
 
-    # Show thread info
     thread_count = sum(1 for item in new_items if item.get("reply_to_tweet_id"))
     if thread_count:
         print(f"  ({thread_count} are thread replies)")
@@ -372,7 +349,6 @@ def main():
             else:
                 response = bsky_client.send_post(rich_text)
 
-            # Record the mapping for future thread replies
             record_posted(
                 item["id"], url,
                 response.uri, response.cid,
@@ -381,7 +357,6 @@ def main():
             print("  Posted successfully")
         except Exception as e:
             print(f"  Error posting: {e}")
-            # Still record as posted to avoid retrying broken tweets
             posted_map[item["id"]] = {"uri": "", "cid": ""}
             save_posted_map(posted_map)
             with open(POSTED_FILE, "a") as f:

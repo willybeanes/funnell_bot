@@ -1,6 +1,7 @@
 .env
 .env.*
 cookies.json
+accounts.db
 __pycache__/
 *.pyc
 .venv/
