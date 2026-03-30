@@ -16,12 +16,6 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v5
 
-      - name: Restore twscrape accounts cache
-        uses: actions/cache@v5
-        with:
-          path: accounts.db
-          key: twscrape-accounts
-
       - name: Set up Python
         uses: actions/setup-python@v6
         with:
@@ -29,15 +23,12 @@ jobs:
 
       - name: Install dependencies
         run: pip install -r requirements.txt
-        timeout-minutes: 3
+        timeout-minutes: 2
 
       - name: Run mirror bot
         timeout-minutes: 5
         env:
           BSKY_APP_PASSWORD: ${{ secrets.BSKY_APP_PASSWORD }}
-          TWITTER_USERNAME: ${{ secrets.TWITTER_USERNAME }}
-          TWITTER_PASSWORD: ${{ secrets.TWITTER_PASSWORD }}
-          TWITTER_EMAIL: ${{ secrets.TWITTER_EMAIL }}
           TWITTER_COOKIES: ${{ secrets.TWITTER_COOKIES }}
         run: python mirror.py
 
