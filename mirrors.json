@@ -1,0 +1,14 @@
+[
+  {
+    "name": "sportz_nutt51",
+    "twitter_username": "sportz_nutt51",
+    "bsky_handle": "sportz-nutt51-bot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_SPORTZ"
+  },
+  {
+    "name": "dadler",
+    "twitter_username": "_dadler",
+    "bsky_handle": "dadler-bot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_DADLER"
+  }
+]

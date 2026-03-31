@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """Twitter-to-Bluesky mirroring bot using Twitter's GraphQL API.
 
-Uses a guest token (no auth required) to fetch tweets via the same
-GraphQL endpoints that twitter.com uses internally. Falls back to
-cookie-based auth if guest token has limited access.
+Config-driven: reads mirrors.json for account pairs.
+Each mirror gets its own state directory (state/<name>/).
 
 Supports:
 - Quote tweets (inline quoted text)
 - Thread detection (self-replies become Bluesky reply chains)
+- Images and videos (downloaded from Twitter, uploaded to Bluesky)
+- Realistic delays between posts based on tweet timestamps
 - Duplicate prevention via posted_map.json
 """
 
@@ -16,18 +17,14 @@ import os
 import re
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
 import httpx
 from atproto import Client, client_utils, models
 
-BSKY_HANDLE = "sportz-nutt51-bot.bsky.social"
-POSTED_FILE = Path(__file__).parent / "posted.txt"
-POSTED_MAP_FILE = Path(__file__).parent / "posted_map.json"
 BSKY_CHAR_LIMIT = 300
-POST_DELAY = 5
-TWITTER_USERNAME = "sportz_nutt51"
+BASE_DIR = Path(__file__).parent
 
 # Twitter's public bearer token (same one the web app uses)
 BEARER_TOKEN = (
@@ -61,50 +58,73 @@ GRAPHQL_FEATURES = {
     "responsive_web_enhance_cards_enabled": False,
 }
 
+# Max image size for Bluesky (1MB)
+BSKY_MAX_IMAGE_SIZE = 1_000_000
+# Max video size for Bluesky (50MB)
+BSKY_MAX_VIDEO_SIZE = 50_000_000
+
+
+# --- Mirror config ---
+
+class MirrorConfig:
+    def __init__(self, config: dict):
+        self.name = config["name"]
+        self.twitter_username = config["twitter_username"]
+        self.bsky_handle = config["bsky_handle"]
+        self.bsky_password_env = config["bsky_password_env"]
+        self.state_dir = BASE_DIR / "state" / self.name
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.posted_file = self.state_dir / "posted.txt"
+        self.posted_map_file = self.state_dir / "posted_map.json"
+
+
+def load_mirrors() -> list[MirrorConfig]:
+    config_path = BASE_DIR / "mirrors.json"
+    configs = json.loads(config_path.read_text())
+    return [MirrorConfig(c) for c in configs]
+
 
 # --- State tracking ---
 
-def load_posted_map() -> dict:
-    if POSTED_MAP_FILE.exists():
+def load_posted_map(cfg: MirrorConfig) -> dict:
+    if cfg.posted_map_file.exists():
         try:
-            return json.loads(POSTED_MAP_FILE.read_text())
+            return json.loads(cfg.posted_map_file.read_text())
         except json.JSONDecodeError:
             return {}
     return {}
 
 
-def save_posted_map(posted_map: dict) -> None:
-    POSTED_MAP_FILE.write_text(json.dumps(posted_map, indent=2) + "\n")
+def save_posted_map(cfg: MirrorConfig, posted_map: dict) -> None:
+    cfg.posted_map_file.write_text(json.dumps(posted_map, indent=2) + "\n")
 
 
-def load_posted_urls() -> set[str]:
-    if not POSTED_FILE.exists():
+def load_posted_urls(cfg: MirrorConfig) -> set[str]:
+    if not cfg.posted_file.exists():
         return set()
-    return set(POSTED_FILE.read_text().strip().splitlines())
+    return set(cfg.posted_file.read_text().strip().splitlines())
 
 
-def is_posted(tweet_id: str, posted_map: dict, posted_urls: set[str]) -> bool:
+def is_posted(tweet_id: str, cfg: MirrorConfig, posted_map: dict, posted_urls: set[str]) -> bool:
     if tweet_id in posted_map:
         return True
-    url = f"https://x.com/{TWITTER_USERNAME}/status/{tweet_id}"
+    url = f"https://x.com/{cfg.twitter_username}/status/{tweet_id}"
     return url in posted_urls
 
 
 def record_posted(tweet_id: str, tweet_url: str, bsky_uri: str, bsky_cid: str,
-                  posted_map: dict) -> None:
+                  cfg: MirrorConfig, posted_map: dict) -> None:
     posted_map[tweet_id] = {"uri": bsky_uri, "cid": bsky_cid}
-    save_posted_map(posted_map)
-    with open(POSTED_FILE, "a") as f:
+    save_posted_map(cfg, posted_map)
+    with open(cfg.posted_file, "a") as f:
         f.write(tweet_url + "\n")
 
 
 # --- Twitter GraphQL client ---
 
 class TwitterClient:
-    """Minimal Twitter GraphQL client using guest token or cookies."""
-
     def __init__(self):
-        self.client = httpx.Client(timeout=15)
+        self.client = httpx.Client(timeout=30, follow_redirects=True)
         self.headers = {
             "authorization": f"Bearer {BEARER_TOKEN}",
             "x-twitter-active-user": "yes",
@@ -115,10 +135,8 @@ class TwitterClient:
                 "Chrome/120.0.0.0 Safari/537.36"
             ),
         }
-        self.use_cookies = False
 
     def activate_guest(self) -> bool:
-        """Get a guest token for unauthenticated access."""
         try:
             resp = self.client.post(
                 "https://api.twitter.com/1.1/guest/activate.json",
@@ -128,14 +146,13 @@ class TwitterClient:
                 token = resp.json().get("guest_token")
                 if token:
                     self.headers["x-guest-token"] = token
-                    print(f"Activated guest token")
+                    print("  Activated guest token")
                     return True
         except Exception as e:
-            print(f"Error getting guest token: {e}")
+            print(f"  Error getting guest token: {e}")
         return False
 
     def activate_cookies(self, cookies_str: str) -> bool:
-        """Use browser cookies for authenticated access."""
         try:
             cookie_dict = {}
             for part in cookies_str.split(";"):
@@ -143,21 +160,14 @@ class TwitterClient:
                 if "=" in part:
                     k, v = part.split("=", 1)
                     cookie_dict[k.strip()] = v.strip()
-
             if "ct0" in cookie_dict:
                 self.headers["x-csrf-token"] = cookie_dict["ct0"]
-            # Remove guest token if present
             self.headers.pop("x-guest-token", None)
-
-            self.client = httpx.Client(
-                timeout=15,
-                cookies=cookie_dict,
-            )
-            self.use_cookies = True
-            print("Using cookie-based auth")
+            self.client = httpx.Client(timeout=30, follow_redirects=True, cookies=cookie_dict)
+            print("  Using cookie-based auth")
             return True
         except Exception as e:
-            print(f"Error setting up cookies: {e}")
+            print(f"  Error setting up cookies: {e}")
             return False
 
     def _graphql_get(self, endpoint: str, variables: dict) -> dict | None:
@@ -168,17 +178,14 @@ class TwitterClient:
         try:
             resp = self.client.get(
                 f"https://twitter.com/i/api/graphql/{endpoint}",
-                params=params,
-                headers=self.headers,
+                params=params, headers=self.headers,
             )
             if resp.status_code == 200:
                 return resp.json()
-            print(f"  GraphQL {endpoint} returned {resp.status_code}")
-            if resp.status_code == 429:
-                print("  Rate limited — try again later")
+            print(f"    GraphQL returned {resp.status_code}")
             return None
         except Exception as e:
-            print(f"  GraphQL request error: {e}")
+            print(f"    GraphQL error: {e}")
             return None
 
     def get_user_id(self, screen_name: str) -> str | None:
@@ -193,7 +200,7 @@ class TwitterClient:
                 pass
         return None
 
-    def get_user_tweets(self, user_id: str, count: int = 20) -> list[dict] | None:
+    def get_user_tweets(self, user_id: str, twitter_username: str, count: int = 20) -> list[dict] | None:
         data = self._graphql_get(
             "XicnWRbyQ3WgVY__VataBQ/UserTweets",
             {
@@ -207,26 +214,24 @@ class TwitterClient:
         )
         if not data:
             return None
-        return self._parse_timeline(data, user_id)
+        return self._parse_timeline(data, user_id, twitter_username)
 
-    def _parse_timeline(self, data: dict, user_id: str) -> list[dict]:
+    def _parse_timeline(self, data: dict, user_id: str, twitter_username: str) -> list[dict]:
         results = []
         try:
             instructions = data["data"]["user"]["result"]["timeline_v2"]["timeline"]["instructions"]
         except (KeyError, TypeError):
             return results
-
         for instruction in instructions:
             if instruction.get("type") != "TimelineAddEntries":
                 continue
             for entry in instruction.get("entries", []):
-                tweet = self._parse_entry(entry, user_id)
+                tweet = self._parse_entry(entry, user_id, twitter_username)
                 if tweet:
                     results.append(tweet)
-
         return results
 
-    def _parse_entry(self, entry: dict, user_id: str) -> dict | None:
+    def _parse_entry(self, entry: dict, user_id: str, twitter_username: str) -> dict | None:
         content = entry.get("content", {})
         if content.get("entryType") != "TimelineTimelineItem":
             return None
@@ -236,32 +241,25 @@ class TwitterClient:
             .get("tweet_results", {})
             .get("result", {})
         )
-
-        # Handle tweets wrapped in "tweet" key (for promoted/tombstone)
         if "tweet" in tweet_result:
             tweet_result = tweet_result["tweet"]
 
         legacy = tweet_result.get("legacy", {})
         tweet_id = legacy.get("id_str")
         text = legacy.get("full_text", "")
-
         if not tweet_id or not text:
             return None
 
-        # Get author info
         core = tweet_result.get("core", {})
         user_results = core.get("user_results", {}).get("result", {})
-        author_id = user_results.get("rest_id", "")
-        author_screen_name = user_results.get("legacy", {}).get("screen_name", TWITTER_USERNAME)
-
+        author_screen_name = user_results.get("legacy", {}).get("screen_name", twitter_username)
         tweet_url = f"https://x.com/{author_screen_name}/status/{tweet_id}"
 
         # Skip retweets
-        rt = legacy.get("retweeted_status_result")
-        if rt:
+        if legacy.get("retweeted_status_result"):
             return None
 
-        # Quote tweet data
+        # Quote tweet
         quoted_text = None
         quoted_user = None
         qt_result = tweet_result.get("quoted_status_result", {}).get("result", {})
@@ -271,24 +269,48 @@ class TwitterClient:
             qt_user = qt_result.get("core", {}).get("user_results", {}).get("result", {}).get("legacy", {})
             quoted_user = qt_user.get("screen_name")
 
-        # Parse timestamp
+        # Timestamp
         created_at = legacy.get("created_at", "")
         tweet_time = None
         if created_at:
             try:
-                # Twitter format: "Thu Mar 30 15:42:00 +0000 2026"
                 tweet_time = datetime.strptime(created_at, "%a %b %d %H:%M:%S %z %Y").isoformat()
             except ValueError:
                 pass
 
-        # Thread detection: self-reply
+        # Media (images and videos)
+        media_items = []
+        extended = legacy.get("extended_entities", {}).get("media", [])
+        for m in extended:
+            media_type = m.get("type", "")
+            if media_type == "photo":
+                media_items.append({
+                    "type": "image",
+                    "url": m.get("media_url_https", ""),
+                    "alt": m.get("ext_alt_text", ""),
+                })
+            elif media_type in ("video", "animated_gif"):
+                # Pick highest bitrate mp4 variant
+                variants = m.get("video_info", {}).get("variants", [])
+                mp4s = [v for v in variants if v.get("content_type") == "video/mp4"]
+                if mp4s:
+                    best = max(mp4s, key=lambda v: v.get("bitrate", 0))
+                    media_items.append({
+                        "type": "video",
+                        "url": best["url"],
+                        "content_type": "video/mp4",
+                        "duration_ms": m.get("video_info", {}).get("duration_millis", 0),
+                        "width": m.get("original_info", {}).get("width", 0),
+                        "height": m.get("original_info", {}).get("height", 0),
+                    })
+
+        # Thread detection
         reply_to_tweet_id = None
         reply_to_user_id = legacy.get("in_reply_to_user_id_str")
         if reply_to_user_id:
             if reply_to_user_id == user_id:
                 reply_to_tweet_id = legacy.get("in_reply_to_status_id_str")
             else:
-                # Reply to someone else — skip
                 return None
 
         return {
@@ -299,44 +321,126 @@ class TwitterClient:
             "quoted_text": quoted_text,
             "quoted_user": quoted_user,
             "reply_to_tweet_id": reply_to_tweet_id,
+            "media": media_items,
         }
 
 
 # --- Tweet fetching ---
 
-def fetch_tweets() -> list[dict] | None:
-    """Fetch recent tweets, trying guest token first, then cookies."""
-    tc = TwitterClient()
-
+def fetch_tweets(cfg: MirrorConfig) -> list[dict] | None:
     cookies = os.environ.get("TWITTER_COOKIES", "")
 
-    # Strategy 1: Try cookies first (most reliable for recent tweets)
+    # Strategy 1: Cookies (most reliable for recent tweets)
     if cookies:
+        tc = TwitterClient()
         if tc.activate_cookies(cookies):
-            user_id = tc.get_user_id(TWITTER_USERNAME)
+            user_id = tc.get_user_id(cfg.twitter_username)
             if user_id:
-                print(f"Resolved @{TWITTER_USERNAME} -> ID {user_id}")
-                tweets = tc.get_user_tweets(user_id, count=20)
+                print(f"  Resolved @{cfg.twitter_username} -> ID {user_id}")
+                tweets = tc.get_user_tweets(user_id, cfg.twitter_username, count=20)
                 if tweets:
-                    print(f"Fetched {len(tweets)} tweets (cookie auth)")
+                    print(f"  Fetched {len(tweets)} tweets (cookie auth)")
                     return tweets
-                print("  Cookie auth returned no tweets")
-            else:
-                print("  Could not resolve user with cookies")
 
-    # Strategy 2: Guest token (no auth needed, may have limited access)
+    # Strategy 2: Guest token
     tc2 = TwitterClient()
     if tc2.activate_guest():
-        user_id = tc2.get_user_id(TWITTER_USERNAME)
+        user_id = tc2.get_user_id(cfg.twitter_username)
         if user_id:
-            print(f"Resolved @{TWITTER_USERNAME} -> ID {user_id}")
-            tweets = tc2.get_user_tweets(user_id, count=20)
+            print(f"  Resolved @{cfg.twitter_username} -> ID {user_id}")
+            tweets = tc2.get_user_tweets(user_id, cfg.twitter_username, count=20)
             if tweets:
-                print(f"Fetched {len(tweets)} tweets (guest token)")
+                print(f"  Fetched {len(tweets)} tweets (guest token)")
                 return tweets
-            print("  Guest token returned no tweets")
 
-    print("Error: Could not fetch tweets from any method")
+    print("  Error: Could not fetch tweets")
+    return None
+
+
+# --- Media handling ---
+
+def download_media(url: str) -> bytes | None:
+    """Download media from Twitter. Returns bytes or None on failure."""
+    try:
+        resp = httpx.get(url, timeout=60, follow_redirects=True)
+        resp.raise_for_status()
+        return resp.content
+    except Exception as e:
+        print(f"    Warning: Failed to download media: {e}")
+        return None
+
+
+def upload_images_to_bsky(bsky_client: Client, media_items: list[dict]) -> models.AppBskyEmbedImages.Main | None:
+    """Upload images to Bluesky and return an embed. Max 4 images."""
+    images = [m for m in media_items if m["type"] == "image"][:4]
+    if not images:
+        return None
+
+    bsky_images = []
+    for img in images:
+        data = download_media(img["url"])
+        if not data:
+            continue
+        # Resize URL trick: Twitter serves smaller images with ?name=small
+        if len(data) > BSKY_MAX_IMAGE_SIZE:
+            data = download_media(img["url"] + "?name=small")
+            if not data or len(data) > BSKY_MAX_IMAGE_SIZE:
+                print(f"    Warning: Image too large, skipping")
+                continue
+        try:
+            blob = bsky_client.upload_blob(data)
+            bsky_images.append(models.AppBskyEmbedImages.Image(
+                image=blob.blob,
+                alt=img.get("alt", ""),
+            ))
+        except Exception as e:
+            print(f"    Warning: Failed to upload image: {e}")
+            continue
+
+    if not bsky_images:
+        return None
+    return models.AppBskyEmbedImages.Main(images=bsky_images)
+
+
+def upload_video_to_bsky(bsky_client: Client, video_item: dict) -> models.AppBskyEmbedVideo.Main | None:
+    """Upload a video to Bluesky and return an embed."""
+    data = download_media(video_item["url"])
+    if not data:
+        return None
+    if len(data) > BSKY_MAX_VIDEO_SIZE:
+        print(f"    Warning: Video too large ({len(data) / 1_000_000:.1f}MB), skipping")
+        return None
+    try:
+        blob = bsky_client.upload_blob(data)
+        return models.AppBskyEmbedVideo.Main(
+            video=blob.blob,
+            alt="",
+        )
+    except Exception as e:
+        print(f"    Warning: Failed to upload video: {e}")
+        return None
+
+
+def build_media_embed(bsky_client: Client, media_items: list[dict]):
+    """Build a Bluesky embed from tweet media. Returns embed or None."""
+    if not media_items:
+        return None
+
+    videos = [m for m in media_items if m["type"] == "video"]
+    images = [m for m in media_items if m["type"] == "image"]
+
+    # Prefer video if present (Bluesky only supports one video per post)
+    if videos:
+        embed = upload_video_to_bsky(bsky_client, videos[0])
+        if embed:
+            return embed
+
+    # Fall back to images
+    if images:
+        embed = upload_images_to_bsky(bsky_client, images)
+        if embed:
+            return embed
+
     return None
 
 
@@ -344,7 +448,8 @@ def fetch_tweets() -> list[dict] | None:
 
 def clean_tweet_text(text: str) -> str:
     text = re.sub(r"^RT @\w+:\s*", "", text)
-    text = re.sub(r"\s*https://t\.co/\w+\s*$", "", text)
+    # Remove t.co links (Twitter appends these for media/quote tweets)
+    text = re.sub(r"\s*https://t\.co/\w+", "", text)
     return text.strip()
 
 
@@ -387,7 +492,6 @@ def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, all_items: list[di
     if not parent_uri or not parent_cid:
         return None
 
-    # Walk back to find thread root
     root_id = parent_id
     visited = set()
     current = root_id
@@ -417,68 +521,48 @@ def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, all_items: list[di
     )
 
 
-# --- Commands ---
+# --- Run one mirror ---
 
-def seed():
-    tweet_items = fetch_tweets()
-    if tweet_items is None:
-        print("Error: Could not fetch tweets for seeding")
-        sys.exit(1)
+def run_mirror(cfg: MirrorConfig):
+    print(f"\n{'='*50}")
+    print(f"Mirror: @{cfg.twitter_username} -> {cfg.bsky_handle}")
+    print(f"{'='*50}")
 
-    posted_map = load_posted_map()
-    posted_urls = load_posted_urls()
-    count = 0
-    for item in tweet_items:
-        if not is_posted(item["id"], posted_map, posted_urls):
-            posted_map[item["id"]] = {"uri": "", "cid": ""}
-            with open(POSTED_FILE, "a") as f:
-                f.write(item["url"] + "\n")
-            count += 1
-
-    save_posted_map(posted_map)
-    print(f"Seeded {count} existing tweets (total tracked: {len(posted_map)})")
-
-
-def main():
-    if "--seed" in sys.argv:
-        seed()
+    bsky_password = os.environ.get(cfg.bsky_password_env, "")
+    if not bsky_password:
+        print(f"  Skipping — {cfg.bsky_password_env} not set")
         return
 
-    bsky_password = os.environ.get("BSKY_APP_PASSWORD")
-    if not bsky_password:
-        print("Error: BSKY_APP_PASSWORD environment variable not set")
-        sys.exit(1)
-
-    tweet_items = fetch_tweets()
+    tweet_items = fetch_tweets(cfg)
     if tweet_items is None:
-        print("Error: Could not fetch tweets")
-        sys.exit(1)
+        print("  Could not fetch tweets, skipping this mirror")
+        return
 
-    posted_map = load_posted_map()
-    posted_urls = load_posted_urls()
+    posted_map = load_posted_map(cfg)
+    posted_urls = load_posted_urls(cfg)
 
     new_items = []
     for item in reversed(tweet_items):
-        if not is_posted(item["id"], posted_map, posted_urls):
+        if not is_posted(item["id"], cfg, posted_map, posted_urls):
             new_items.append(item)
 
     if not new_items:
-        print("No new tweets to post")
+        print("  No new tweets to post")
         return
 
-    print(f"Found {len(new_items)} new tweet(s) to post")
+    print(f"  Found {len(new_items)} new tweet(s) to post")
 
     bsky_client = Client()
     try:
-        bsky_client.login(BSKY_HANDLE, bsky_password)
-        print(f"Logged in to Bluesky as {BSKY_HANDLE}")
+        bsky_client.login(cfg.bsky_handle, bsky_password)
+        print(f"  Logged in to Bluesky as {cfg.bsky_handle}")
     except Exception as e:
-        print(f"Error logging in to Bluesky: {e}")
-        sys.exit(1)
+        print(f"  Error logging in to Bluesky: {e}")
+        return
 
-    # Calculate realistic delays between posts based on tweet timestamps
-    MAX_TOTAL_DELAY = 13 * 60  # 13 min cap so we finish before next cron run
-    MIN_DELAY = 5  # minimum seconds between posts
+    # Calculate realistic delays
+    MAX_TOTAL_DELAY = 6 * 60  # 6 min per mirror (two mirrors = 12 min max)
+    MIN_DELAY = 5
 
     delays = []
     for i in range(1, len(new_items)):
@@ -492,12 +576,11 @@ def main():
         else:
             delays.append(MIN_DELAY)
 
-    # Scale delays down if total exceeds our cap
     total_delay = sum(delays)
     if total_delay > MAX_TOTAL_DELAY and delays:
         scale = MAX_TOTAL_DELAY / total_delay
         delays = [d * scale for d in delays]
-        print(f"Scaled delays to fit in {MAX_TOTAL_DELAY // 60}m (original total: {total_delay / 60:.1f}m)")
+        print(f"  Scaled delays to fit in {MAX_TOTAL_DELAY // 60}m")
 
     for i, item in enumerate(new_items):
         text = clean_tweet_text(item["text"])
@@ -511,42 +594,105 @@ def main():
         reply_to = item.get("reply_to_tweet_id")
         if reply_to:
             reply_ref = build_reply_ref(posted_map, reply_to, new_items + tweet_items)
-            if reply_ref:
-                print(f"\nPosting thread reply ({i + 1}/{len(new_items)}): {url}")
-            else:
-                print(f"\nPosting ({i + 1}/{len(new_items)}): {url}")
-        else:
-            print(f"\nPosting ({i + 1}/{len(new_items)}): {url}")
 
-        print(f"  Text: {post_text[:80]}...")
+        label = "thread reply" if reply_ref else "post"
+        print(f"\n  [{i + 1}/{len(new_items)}] {label}: {url}")
+        print(f"    Text: {post_text[:80]}...")
+
+        # Build media embed (with failsafe — never crash on media failure)
+        embed = None
+        media = item.get("media", [])
+        if media:
+            print(f"    Media: {len(media)} item(s)")
+            try:
+                embed = build_media_embed(bsky_client, media)
+                if embed:
+                    print(f"    Media uploaded successfully")
+                else:
+                    print(f"    Warning: Media upload failed, posting without media")
+            except Exception as e:
+                print(f"    Warning: Media error ({e}), posting without media")
 
         try:
             rich_text = create_rich_post(bsky_client, post_text, url)
             if reply_ref:
-                response = bsky_client.send_post(rich_text, reply_to=reply_ref)
+                response = bsky_client.send_post(rich_text, reply_to=reply_ref, embed=embed)
             else:
-                response = bsky_client.send_post(rich_text)
-            record_posted(item["id"], url, response.uri, response.cid, posted_map)
-            print("  Posted successfully")
+                response = bsky_client.send_post(rich_text, embed=embed)
+            record_posted(item["id"], url, response.uri, response.cid, cfg, posted_map)
+            print(f"    Posted successfully")
         except Exception as e:
-            print(f"  Error posting: {e}")
+            print(f"    Error posting: {e}")
             posted_map[item["id"]] = {"uri": "", "cid": ""}
-            save_posted_map(posted_map)
-            with open(POSTED_FILE, "a") as f:
+            save_posted_map(cfg, posted_map)
+            with open(cfg.posted_file, "a") as f:
                 f.write(url + "\n")
             continue
 
-        # Wait with realistic delay before next post
         if i < len(new_items) - 1:
             delay = int(delays[i])
             mins, secs = divmod(delay, 60)
             if mins > 0:
-                print(f"  Waiting {mins}m {secs}s (matching tweet gap)...")
+                print(f"    Waiting {mins}m {secs}s (matching tweet gap)...")
             else:
-                print(f"  Waiting {secs}s (matching tweet gap)...")
+                print(f"    Waiting {secs}s...")
             time.sleep(delay)
 
-    print("\nDone!")
+    print(f"\n  Done with @{cfg.twitter_username}!")
+
+
+# --- Commands ---
+
+def seed(cfg: MirrorConfig):
+    print(f"Seeding @{cfg.twitter_username}...")
+    tweet_items = fetch_tweets(cfg)
+    if tweet_items is None:
+        print("  Could not fetch tweets for seeding")
+        return
+
+    posted_map = load_posted_map(cfg)
+    posted_urls = load_posted_urls(cfg)
+    count = 0
+    for item in tweet_items:
+        if not is_posted(item["id"], cfg, posted_map, posted_urls):
+            posted_map[item["id"]] = {"uri": "", "cid": ""}
+            with open(cfg.posted_file, "a") as f:
+                f.write(item["url"] + "\n")
+            count += 1
+
+    save_posted_map(cfg, posted_map)
+    print(f"  Seeded {count} existing tweets (total tracked: {len(posted_map)})")
+
+
+def main():
+    mirrors = load_mirrors()
+
+    # Filter to a specific mirror if --mirror flag is provided
+    mirror_filter = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--mirror" and i + 1 < len(sys.argv):
+            mirror_filter = sys.argv[i + 1]
+
+    if mirror_filter:
+        mirrors = [m for m in mirrors if m.name == mirror_filter]
+        if not mirrors:
+            print(f"Error: Mirror '{mirror_filter}' not found in mirrors.json")
+            sys.exit(1)
+
+    if "--seed" in sys.argv:
+        for cfg in mirrors:
+            seed(cfg)
+        return
+
+    for cfg in mirrors:
+        try:
+            run_mirror(cfg)
+        except Exception as e:
+            print(f"\n  Error running mirror @{cfg.twitter_username}: {e}")
+            print("  Continuing to next mirror...")
+            continue
+
+    print("\nAll mirrors complete!")
 
 
 if __name__ == "__main__":
