@@ -10,5 +10,11 @@
     "twitter_username": "_dadler",
     "bsky_handle": "dadler-bot.bsky.social",
     "bsky_password_env": "BSKY_APP_PASSWORD_DADLER"
+  },
+  {
+    "name": "toomuchtuma",
+    "twitter_username": "toomuchtuma",
+    "bsky_handle": "toomuchtuma-bot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_TUMA"
   }
 ]
