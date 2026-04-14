@@ -32,7 +32,7 @@ jobs:
           BSKY_APP_PASSWORD_DADLER: ${{ secrets.BSKY_APP_PASSWORD_DADLER }}
           BSKY_APP_PASSWORD_TUMA: ${{ secrets.BSKY_APP_PASSWORD_TUMA }}
           TWITTER_COOKIES: ${{ secrets.TWITTER_COOKIES }}
-        run: python mirror.py --seed --mirror toomuchtuma
+        run: python mirror.py
 
       - name: Commit and push state files
         run: |
