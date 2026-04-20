@@ -229,7 +229,8 @@ class TwitterClient:
                 tweet = self._parse_entry(entry, user_id, twitter_username)
                 if tweet:
                     results.append(tweet)
-        return results
+        # Hard cap: Twitter may return far more than requested count
+        return results[:20]
 
     def _parse_entry(self, entry: dict, user_id: str, twitter_username: str) -> dict | None:
         content = entry.get("content", {})
@@ -549,6 +550,12 @@ def run_mirror(cfg: MirrorConfig):
     if not new_items:
         print("  No new tweets to post")
         return
+
+    # Safety limit: cap new posts to prevent accidental flooding
+    MAX_NEW_POSTS = 10
+    if len(new_items) > MAX_NEW_POSTS:
+        print(f"  WARNING: Found {len(new_items)} new tweets — capping to {MAX_NEW_POSTS} most recent to prevent flooding")
+        new_items = new_items[-MAX_NEW_POSTS:]
 
     print(f"  Found {len(new_items)} new tweet(s) to post")
 
