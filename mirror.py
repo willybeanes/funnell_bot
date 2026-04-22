@@ -569,7 +569,7 @@ def run_mirror(cfg: MirrorConfig):
 
     # Calculate realistic delays
     MAX_TOTAL_DELAY = 4 * 60  # 4 min per mirror (three mirrors = 12 min max)
-    MIN_DELAY = 5
+    MIN_DELAY = 60  # Never post faster than 1 per minute
 
     delays = []
     for i in range(1, len(new_items)):
