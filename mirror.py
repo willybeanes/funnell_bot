@@ -17,7 +17,7 @@ import os
 import re
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 import httpx
@@ -218,6 +218,7 @@ class TwitterClient:
 
     def _parse_timeline(self, data: dict, user_id: str, twitter_username: str) -> list[dict]:
         results = []
+        cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         try:
             instructions = data["data"]["user"]["result"]["timeline_v2"]["timeline"]["instructions"]
         except (KeyError, TypeError):
@@ -228,6 +229,14 @@ class TwitterClient:
             for entry in instruction.get("entries", []):
                 tweet = self._parse_entry(entry, user_id, twitter_username)
                 if tweet:
+                    # Skip tweets older than 30 days (catches pinned/recommended old posts)
+                    if tweet.get("created_at"):
+                        try:
+                            tweet_dt = datetime.fromisoformat(tweet["created_at"])
+                            if tweet_dt < cutoff:
+                                continue
+                        except ValueError:
+                            pass
                     results.append(tweet)
         # Hard cap: Twitter may return far more than requested count
         return results[:20]
