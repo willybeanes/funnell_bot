@@ -438,22 +438,91 @@ def upload_images_to_bsky(bsky_client: Client, media_items: list[dict]) -> model
 
 
 def upload_video_to_bsky(bsky_client: Client, video_item: dict) -> models.AppBskyEmbedVideo.Main | None:
-    """Upload a video to Bluesky and return an embed."""
+    """Upload a video to Bluesky using the dedicated video service and return an embed.
+
+    Bluesky requires videos to be processed through video.bsky.app rather than
+    the standard blob upload endpoint used for images.
+    """
     data = download_media(video_item["url"])
     if not data:
         return None
     if len(data) > BSKY_MAX_VIDEO_SIZE:
         print(f"    Warning: Video too large ({len(data) / 1_000_000:.1f}MB), skipping")
         return None
+
     try:
-        blob = bsky_client.upload_blob(data)
-        return models.AppBskyEmbedVideo.Main(
-            video=blob.blob,
-            alt="",
+        did = bsky_client.me.did
+        # Grab the raw access JWT directly from the client session
+        access_jwt = bsky_client._session.access_jwt  # type: ignore[attr-defined]
+
+        # Step 1: Get a service auth token scoped to the video upload endpoint
+        sa_resp = httpx.get(
+            "https://bsky.social/xrpc/com.atproto.server.getServiceAuth",
+            params={"aud": "did:web:video.bsky.app", "lxm": "app.bsky.video.uploadVideo"},
+            headers={"Authorization": f"Bearer {access_jwt}"},
+            timeout=15,
         )
+        sa_resp.raise_for_status()
+        service_token = sa_resp.json()["token"]
+
+        # Step 2: Upload to Bluesky's video processing service
+        upload_resp = httpx.post(
+            "https://video.bsky.app/xrpc/app.bsky.video.uploadVideo",
+            headers={
+                "Authorization": f"Bearer {service_token}",
+                "Content-Type": "video/mp4",
+            },
+            content=data,
+            params={"did": did, "name": "video.mp4"},
+            timeout=120,
+        )
+        upload_resp.raise_for_status()
+        job = upload_resp.json()
+        job_id = job.get("jobId")
+        blob = job.get("blob")  # may already be present on fast uploads
+
+        # Step 3: Poll for job completion if blob not immediately available
+        if not blob and job_id:
+            print(f"    Video processing (job {job_id[:8]}...)...")
+            for _ in range(30):  # up to ~60 seconds
+                time.sleep(2)
+                status_resp = httpx.get(
+                    "https://video.bsky.app/xrpc/app.bsky.video.getJobStatus",
+                    params={"jobId": job_id},
+                    headers={"Authorization": f"Bearer {service_token}"},
+                    timeout=15,
+                )
+                status = status_resp.json().get("jobStatus", {})
+                state = status.get("state", "")
+                if status.get("blob"):
+                    blob = status["blob"]
+                    break
+                if state == "JOB_STATE_FAILED":
+                    print(f"    Warning: Video processing failed: {status.get('error')}")
+                    return None
+
+        if not blob:
+            print(f"    Warning: Video processing timed out")
+            return None
+
+        # Step 4: Build the embed from the processed blob dict
+        from atproto_client.models.blob_ref import BlobRef
+        blob_ref = BlobRef(
+            mime_type=blob.get("mimeType", "video/mp4"),
+            size=blob.get("size", len(data)),
+            ref=blob["ref"],
+        )
+        return models.AppBskyEmbedVideo.Main(video=blob_ref, alt="")
+
     except Exception as e:
-        print(f"    Warning: Failed to upload video: {e}")
-        return None
+        print(f"    Warning: Failed to upload video via video service: {e}")
+        # Fallback: regular blob upload (may not render as video but won't crash)
+        try:
+            blob_resp = bsky_client.upload_blob(data)
+            return models.AppBskyEmbedVideo.Main(video=blob_resp.blob, alt="")
+        except Exception as e2:
+            print(f"    Warning: Fallback blob upload also failed: {e2}")
+            return None
 
 
 def build_media_embed(bsky_client: Client, media_items: list[dict]):

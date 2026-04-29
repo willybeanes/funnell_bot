@@ -33,7 +33,7 @@ jobs:
           BSKY_APP_PASSWORD_TUMA: ${{ secrets.BSKY_APP_PASSWORD_TUMA }}
           BSKY_APP_PASSWORD_AFAST: ${{ secrets.BSKY_APP_PASSWORD_AFAST }}
           TWITTER_COOKIES: ${{ secrets.TWITTER_COOKIES }}
-        run: python cleanup.py && python mirror.py
+        run: python cleanup.py && python mirror.py --mirror alexfast8
 
       - name: Commit and push state files
         run: |
