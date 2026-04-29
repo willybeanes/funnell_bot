@@ -33,7 +33,7 @@ jobs:
           BSKY_APP_PASSWORD_TUMA: ${{ secrets.BSKY_APP_PASSWORD_TUMA }}
           BSKY_APP_PASSWORD_AFAST: ${{ secrets.BSKY_APP_PASSWORD_AFAST }}
           TWITTER_COOKIES: ${{ secrets.TWITTER_COOKIES }}
-        run: python mirror.py --seed --mirror alexfast8
+        run: python mirror.py
 
       - name: Commit and push state files
         run: |
