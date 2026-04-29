@@ -289,8 +289,12 @@ class TwitterClient:
                 pass
 
         # Media (images and videos)
+        # extended_entities is the primary source; entities.media is a fallback
         media_items = []
-        extended = legacy.get("extended_entities", {}).get("media", [])
+        extended = (
+            legacy.get("extended_entities", {}).get("media", [])
+            or legacy.get("entities", {}).get("media", [])
+        )
         for m in extended:
             media_type = m.get("type", "")
             if media_type == "photo":
@@ -313,6 +317,27 @@ class TwitterClient:
                         "width": m.get("original_info", {}).get("width", 0),
                         "height": m.get("original_info", {}).get("height", 0),
                     })
+
+        # Fallback: check Twitter card for video (used for some native uploads)
+        if not media_items:
+            card = tweet_result.get("card", {}).get("legacy", {})
+            card_values = {
+                b["key"]: b.get("value", {})
+                for b in card.get("binding_values", [])
+            }
+            player_url = (
+                card_values.get("player_stream_url", {}).get("string_value")
+                or card_values.get("amplify_url_vmap", {}).get("string_value")
+            )
+            if player_url and player_url.endswith(".mp4"):
+                media_items.append({
+                    "type": "video",
+                    "url": player_url,
+                    "content_type": "video/mp4",
+                    "duration_ms": 0,
+                    "width": 0,
+                    "height": 0,
+                })
 
         # Thread detection
         reply_to_tweet_id = None
