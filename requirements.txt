@@ -1,2 +1,2 @@
-atproto==0.0.55
+atproto==0.0.65
 httpx==0.27.2
