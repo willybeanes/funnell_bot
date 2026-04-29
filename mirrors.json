@@ -16,5 +16,11 @@
     "twitter_username": "toomuchtuma",
     "bsky_handle": "toomuchtuma-bot.bsky.social",
     "bsky_password_env": "BSKY_APP_PASSWORD_TUMA"
+  },
+  {
+    "name": "alexfast8",
+    "twitter_username": "AlexFast8",
+    "bsky_handle": "alexfast8bot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_AFAST"
   }
 ]
