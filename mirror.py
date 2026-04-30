@@ -12,6 +12,7 @@ Supports:
 - Duplicate prevention via posted_map.json
 """
 
+import html
 import json
 import os
 import re
@@ -566,6 +567,8 @@ def build_media_embed(bsky_client: Client, media_items: list[dict]):
 # --- Bluesky posting ---
 
 def clean_tweet_text(text: str) -> str:
+    # Twitter's API returns HTML-encoded text (&gt; &lt; &amp; etc.)
+    text = html.unescape(text)
     text = re.sub(r"^RT @\w+:\s*", "", text)
     # Remove t.co links (Twitter appends these for media/quote tweets)
     text = re.sub(r"\s*https://t\.co/\w+", "", text)
