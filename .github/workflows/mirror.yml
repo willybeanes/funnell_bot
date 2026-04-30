@@ -34,7 +34,7 @@ jobs:
           BSKY_APP_PASSWORD_AFAST: ${{ secrets.BSKY_APP_PASSWORD_AFAST }}
           BSKY_APP_PASSWORD_LANCE: ${{ secrets.BSKY_APP_PASSWORD_LANCE }}
           TWITTER_COOKIES: ${{ secrets.TWITTER_COOKIES }}
-        run: python seed_lance.py && python mirror.py --mirror lancebrozbot
+        run: python mirror.py
 
       - name: Commit and push state files
         run: |
