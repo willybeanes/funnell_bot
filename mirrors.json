@@ -22,5 +22,11 @@
     "twitter_username": "AlexFast8",
     "bsky_handle": "alexfast8bot.bsky.social",
     "bsky_password_env": "BSKY_APP_PASSWORD_AFAST"
+  },
+  {
+    "name": "lancebrozbot",
+    "twitter_username": "LanceBroz",
+    "bsky_handle": "lancebrozbot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_LANCE"
   }
 ]
