@@ -23,12 +23,23 @@ try:
 except Exception as e:
     print(f"Could not delete {rkey}: {e}")
 
-state_file = Path(__file__).parent / "state" / "dadler" / "posted_map.json"
-if state_file.exists():
-    data = json.loads(state_file.read_text())
+state_dir = Path(__file__).parent / "state" / "dadler"
+
+# Remove from posted_map.json
+map_file = state_dir / "posted_map.json"
+if map_file.exists():
+    data = json.loads(map_file.read_text())
     if tweet_id in data:
         del data[tweet_id]
-        state_file.write_text(json.dumps(data, indent=2) + "\n")
-        print(f"Removed {tweet_id} from posted state")
-    else:
-        print(f"{tweet_id} not in posted state")
+        map_file.write_text(json.dumps(data, indent=2) + "\n")
+        print(f"Removed {tweet_id} from posted_map.json")
+
+# Remove from posted.txt (is_posted checks both files)
+txt_file = state_dir / "posted.txt"
+tweet_url = f"https://x.com/_dadler/status/{tweet_id}"
+if txt_file.exists():
+    lines = txt_file.read_text().splitlines()
+    filtered = [l for l in lines if l.strip() != tweet_url]
+    if len(filtered) < len(lines):
+        txt_file.write_text("\n".join(filtered) + "\n")
+        print(f"Removed {tweet_url} from posted.txt")
