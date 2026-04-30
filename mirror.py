@@ -462,7 +462,7 @@ def upload_video_to_bsky(bsky_client: Client, video_item: dict) -> models.AppBsk
         pds_host = urlparse(pds_endpoint).hostname or "bsky.social"
         pds_did = f"did:web:{pds_host}"
         sa = bsky_client.com.atproto.server.get_service_auth(
-            params={"aud": pds_did, "lxm": "app.bsky.video.uploadVideo"}
+            params={"aud": pds_did, "lxm": "com.atproto.repo.uploadBlob"}
         )
         service_token = sa.token
         print(f"    Service auth token obtained for {pds_did} ({len(service_token)} chars)")
