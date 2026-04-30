@@ -19,6 +19,7 @@ import sys
 import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 from atproto import Client, client_utils, models
@@ -454,14 +455,17 @@ def upload_video_to_bsky(bsky_client: Client, video_item: dict) -> models.AppBsk
     did = bsky_client.me.did
 
     # Step 1: Get a service auth token via the atproto SDK.
-    # Using the SDK method (not raw httpx) ensures the call goes to the correct
-    # PDS endpoint and uses the properly managed session JWT automatically.
+    # The `aud` must be the user's PDS DID — the video service validates the
+    # token against the user's PDS as the trust anchor, NOT did:web:video.bsky.app.
     try:
+        pds_endpoint = getattr(bsky_client._session, "pds_endpoint", "https://bsky.social")
+        pds_host = urlparse(pds_endpoint).hostname or "bsky.social"
+        pds_did = f"did:web:{pds_host}"
         sa = bsky_client.com.atproto.server.get_service_auth(
-            params={"aud": "did:web:video.bsky.app", "lxm": "app.bsky.video.uploadVideo"}
+            params={"aud": pds_did, "lxm": "app.bsky.video.uploadVideo"}
         )
         service_token = sa.token
-        print(f"    Service auth token obtained ({len(service_token)} chars)")
+        print(f"    Service auth token obtained for {pds_did} ({len(service_token)} chars)")
     except Exception as e:
         print(f"    Warning: Could not get service auth token: {e}")
         return None
