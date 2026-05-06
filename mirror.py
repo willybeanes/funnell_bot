@@ -232,6 +232,10 @@ class TwitterClient:
             if instruction.get("type") != "TimelineAddEntries":
                 continue
             for entry in instruction.get("entries", []):
+                entry_type = entry.get("content", {}).get("entryType", "?")
+                entry_id = entry.get("entryId", "?")
+                if entry_type != "TimelineTimelineItem":
+                    print(f"    [debug] Non-item entry: type={entry_type} id={entry_id}")
                 tweet = self._parse_entry(entry, user_id, twitter_username,
                                           debug_counters={"reply": 0, "retweet": 0})
                 if tweet is None:
@@ -255,6 +259,8 @@ class TwitterClient:
         if skipped_reply or skipped_retweet or skipped_age:
             print(f"    Filtered: {skipped_reply} replies-to-others, "
                   f"{skipped_retweet} retweets, {skipped_age} older-than-30d")
+        if results:
+            print(f"    [debug] Original tweets returned: {[t['id'] for t in results]}")
         # Hard cap: Twitter may return far more than requested count
         return results[:20]
 
