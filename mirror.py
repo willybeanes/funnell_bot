@@ -241,6 +241,9 @@ class TwitterClient:
                 tweet = self._parse_entry(entry, user_id, twitter_username,
                                           debug_counters={"reply": 0, "retweet": 0})
                 if tweet is None:
+                    if entry_type == "TimelineTimelineItem":
+                        item_type = entry.get("content", {}).get("itemContent", {}).get("itemType", "?")
+                        print(f"    [debug] Item returned None: entryId={entry_id} itemType={item_type}")
                     continue
                 if tweet == "RETWEET":
                     skipped_retweet += 1
