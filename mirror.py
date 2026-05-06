@@ -306,8 +306,7 @@ class TwitterClient:
 
         # Skip retweets
         if legacy.get("retweeted_status_result"):
-            print(f"    [debug] Skipping retweet: {tweet_id} — {text[:60]!r}")
-            return "RETWEET"  # sentinel for debug counting
+            return "RETWEET"
 
         # Quote tweet
         quoted_text = None
@@ -386,7 +385,7 @@ class TwitterClient:
             if reply_to_user_id == user_id:
                 reply_to_tweet_id = legacy.get("in_reply_to_status_id_str")
             else:
-                return "REPLY"  # sentinel for debug counting
+                return "REPLY"
 
         return {
             "text": text,
