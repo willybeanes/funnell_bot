@@ -230,7 +230,9 @@ class TwitterClient:
             return results
         for instruction in instructions:
             if instruction.get("type") != "TimelineAddEntries":
+                print(f"    [debug] Skipping instruction type={instruction.get('type')}")
                 continue
+            print(f"    [debug] TimelineAddEntries has {len(instruction.get('entries', []))} raw entries")
             for entry in instruction.get("entries", []):
                 entry_type = entry.get("content", {}).get("entryType", "?")
                 entry_id = entry.get("entryId", "?")
