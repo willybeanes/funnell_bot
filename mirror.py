@@ -285,6 +285,7 @@ class TwitterClient:
 
         # Skip retweets
         if legacy.get("retweeted_status_result"):
+            print(f"    [debug] Skipping retweet: {tweet_id} — {text[:60]!r}")
             return "RETWEET"  # sentinel for debug counting
 
         # Quote tweet
