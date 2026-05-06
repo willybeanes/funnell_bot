@@ -221,6 +221,9 @@ class TwitterClient:
     def _parse_timeline(self, data: dict, user_id: str, twitter_username: str) -> list[dict]:
         results = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+        skipped_reply = 0
+        skipped_retweet = 0
+        skipped_age = 0
         try:
             instructions = data["data"]["user"]["result"]["timeline_v2"]["timeline"]["instructions"]
         except (KeyError, TypeError):
@@ -229,21 +232,34 @@ class TwitterClient:
             if instruction.get("type") != "TimelineAddEntries":
                 continue
             for entry in instruction.get("entries", []):
-                tweet = self._parse_entry(entry, user_id, twitter_username)
-                if tweet:
-                    # Skip tweets older than 30 days (catches pinned/recommended old posts)
-                    if tweet.get("created_at"):
-                        try:
-                            tweet_dt = datetime.fromisoformat(tweet["created_at"])
-                            if tweet_dt < cutoff:
-                                continue
-                        except ValueError:
-                            pass
-                    results.append(tweet)
+                tweet = self._parse_entry(entry, user_id, twitter_username,
+                                          debug_counters={"reply": 0, "retweet": 0})
+                if tweet is None:
+                    continue
+                if tweet == "RETWEET":
+                    skipped_retweet += 1
+                    continue
+                if tweet == "REPLY":
+                    skipped_reply += 1
+                    continue
+                # Skip tweets older than 30 days (catches pinned/recommended old posts)
+                if tweet.get("created_at"):
+                    try:
+                        tweet_dt = datetime.fromisoformat(tweet["created_at"])
+                        if tweet_dt < cutoff:
+                            skipped_age += 1
+                            continue
+                    except ValueError:
+                        pass
+                results.append(tweet)
+        if skipped_reply or skipped_retweet or skipped_age:
+            print(f"    Filtered: {skipped_reply} replies-to-others, "
+                  f"{skipped_retweet} retweets, {skipped_age} older-than-30d")
         # Hard cap: Twitter may return far more than requested count
         return results[:20]
 
-    def _parse_entry(self, entry: dict, user_id: str, twitter_username: str) -> dict | None:
+    def _parse_entry(self, entry: dict, user_id: str, twitter_username: str,
+                     debug_counters: dict | None = None) -> dict | None:
         content = entry.get("content", {})
         if content.get("entryType") != "TimelineTimelineItem":
             return None
@@ -269,7 +285,7 @@ class TwitterClient:
 
         # Skip retweets
         if legacy.get("retweeted_status_result"):
-            return None
+            return "RETWEET"  # sentinel for debug counting
 
         # Quote tweet
         quoted_text = None
@@ -348,7 +364,7 @@ class TwitterClient:
             if reply_to_user_id == user_id:
                 reply_to_tweet_id = legacy.get("in_reply_to_status_id_str")
             else:
-                return None
+                return "REPLY"  # sentinel for debug counting
 
         return {
             "text": text,
