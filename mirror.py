@@ -230,47 +230,52 @@ class TwitterClient:
             return results
         for instruction in instructions:
             if instruction.get("type") != "TimelineAddEntries":
-                print(f"    [debug] Skipping instruction type={instruction.get('type')}")
                 continue
-            print(f"    [debug] TimelineAddEntries has {len(instruction.get('entries', []))} raw entries")
             for entry in instruction.get("entries", []):
-                entry_type = entry.get("content", {}).get("entryType", "?")
-                entry_id = entry.get("entryId", "?")
-                if entry_type != "TimelineTimelineItem":
-                    print(f"    [debug] Non-item entry: type={entry_type} id={entry_id}")
-                tweet = self._parse_entry(entry, user_id, twitter_username,
-                                          debug_counters={"reply": 0, "retweet": 0})
-                if tweet is None:
-                    if entry_type == "TimelineTimelineItem":
-                        item_type = entry.get("content", {}).get("itemContent", {}).get("itemType", "?")
-                        print(f"    [debug] Item returned None: entryId={entry_id} itemType={item_type}")
-                    continue
-                if tweet == "RETWEET":
-                    skipped_retweet += 1
-                    continue
-                if tweet == "REPLY":
-                    skipped_reply += 1
-                    continue
-                # Skip tweets older than 30 days (catches pinned/recommended old posts)
-                if tweet.get("created_at"):
-                    try:
-                        tweet_dt = datetime.fromisoformat(tweet["created_at"])
-                        if tweet_dt < cutoff:
-                            skipped_age += 1
-                            continue
-                    except ValueError:
-                        pass
-                results.append(tweet)
+                content = entry.get("content", {})
+                entry_type = content.get("entryType", "?")
+
+                # Build list of (synthetic) entries to process — modules yield multiple
+                if entry_type == "TimelineTimelineModule":
+                    candidate_entries = [
+                        {"content": {"entryType": "TimelineTimelineItem",
+                                     "itemContent": item.get("item", {}).get("itemContent", {})}}
+                        for item in content.get("items", [])
+                    ]
+                elif entry_type == "TimelineTimelineItem":
+                    candidate_entries = [entry]
+                else:
+                    continue  # cursors, who-to-follow modules, etc.
+
+                for candidate in candidate_entries:
+                    tweet = self._parse_entry(candidate, user_id, twitter_username)
+                    if tweet is None:
+                        continue
+                    if tweet == "RETWEET":
+                        skipped_retweet += 1
+                        continue
+                    if tweet == "REPLY":
+                        skipped_reply += 1
+                        continue
+                    # Skip tweets older than 30 days (catches pinned/recommended old posts)
+                    if tweet.get("created_at"):
+                        try:
+                            tweet_dt = datetime.fromisoformat(tweet["created_at"])
+                            if tweet_dt < cutoff:
+                                skipped_age += 1
+                                continue
+                        except ValueError:
+                            pass
+                    # Deduplicate (same tweet can appear in both module and standalone entry)
+                    if not any(r["id"] == tweet["id"] for r in results):
+                        results.append(tweet)
         if skipped_reply or skipped_retweet or skipped_age:
             print(f"    Filtered: {skipped_reply} replies-to-others, "
                   f"{skipped_retweet} retweets, {skipped_age} older-than-30d")
-        if results:
-            print(f"    [debug] Original tweets returned: {[t['id'] for t in results]}")
         # Hard cap: Twitter may return far more than requested count
         return results[:20]
 
-    def _parse_entry(self, entry: dict, user_id: str, twitter_username: str,
-                     debug_counters: dict | None = None) -> dict | None:
+    def _parse_entry(self, entry: dict, user_id: str, twitter_username: str) -> dict | None:
         content = entry.get("content", {})
         if content.get("entryType") != "TimelineTimelineItem":
             return None
@@ -291,8 +296,13 @@ class TwitterClient:
 
         core = tweet_result.get("core", {})
         user_results = core.get("user_results", {}).get("result", {})
+        author_user_id = user_results.get("rest_id", "")
         author_screen_name = user_results.get("legacy", {}).get("screen_name", twitter_username)
         tweet_url = f"https://x.com/{author_screen_name}/status/{tweet_id}"
+
+        # Skip tweets by other users (can appear inside conversation modules)
+        if author_user_id and author_user_id != user_id:
+            return None
 
         # Skip retweets
         if legacy.get("retweeted_status_result"):
