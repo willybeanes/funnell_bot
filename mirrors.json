@@ -28,5 +28,11 @@
     "twitter_username": "LanceBroz",
     "bsky_handle": "lancebrozbot.bsky.social",
     "bsky_password_env": "BSKY_APP_PASSWORD_LANCE"
+  },
+  {
+    "name": "mlbstats",
+    "twitter_username": "MLBStats",
+    "bsky_handle": "mlbstatsbot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_MLBSTATS"
   }
 ]
