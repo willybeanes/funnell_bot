@@ -6,7 +6,6 @@ Each mirror gets its own state directory (state/<name>/).
 
 Supports:
 - Quote tweets (inline quoted text)
-- Thread detection (self-replies become Bluesky reply chains)
 - Images and videos (downloaded from Twitter, uploaded to Bluesky)
 - Realistic delays between posts based on tweet timestamps
 - Duplicate prevention via posted_map.json
@@ -456,14 +455,9 @@ class TwitterClient:
                     "height": 0,
                 })
 
-        # Thread detection
-        reply_to_tweet_id = None
-        reply_to_user_id = legacy.get("in_reply_to_user_id_str")
-        if reply_to_user_id:
-            if reply_to_user_id == user_id:
-                reply_to_tweet_id = legacy.get("in_reply_to_status_id_str")
-            else:
-                return "REPLY"
+        # Skip all replies (including self-replies) — only mirror top-level original tweets
+        if legacy.get("in_reply_to_user_id_str"):
+            return "REPLY"
 
         return {
             "text": text,
@@ -472,7 +466,6 @@ class TwitterClient:
             "created_at": tweet_time,
             "quoted_text": quoted_text,
             "quoted_user": quoted_user,
-            "reply_to_tweet_id": reply_to_tweet_id,
             "media": media_items,
             "quoted_media": quoted_media,
         }
@@ -721,43 +714,6 @@ def create_rich_post(client: Client, post_text: str, tweet_url: str):
     return tb
 
 
-def build_reply_ref(posted_map: dict, reply_to_tweet_id: str, all_items: list[dict]):
-    parent_id = reply_to_tweet_id
-    if parent_id not in posted_map:
-        return None
-    parent_uri = posted_map[parent_id]["uri"]
-    parent_cid = posted_map[parent_id]["cid"]
-    if not parent_uri or not parent_cid:
-        return None
-
-    root_id = parent_id
-    visited = set()
-    current = root_id
-    while current not in visited:
-        visited.add(current)
-        found_parent = None
-        for item in all_items:
-            if item["id"] == current and item.get("reply_to_tweet_id"):
-                found_parent = item["reply_to_tweet_id"]
-                break
-        if found_parent and found_parent in posted_map and posted_map[found_parent]["uri"]:
-            current = found_parent
-        else:
-            break
-    root_id = current
-
-    if root_id in posted_map and posted_map[root_id]["uri"]:
-        root_uri = posted_map[root_id]["uri"]
-        root_cid = posted_map[root_id]["cid"]
-    else:
-        root_uri = parent_uri
-        root_cid = parent_cid
-
-    return models.AppBskyFeedPost.ReplyRef(
-        root=models.ComAtprotoRepoStrongRef.Main(uri=root_uri, cid=root_cid),
-        parent=models.ComAtprotoRepoStrongRef.Main(uri=parent_uri, cid=parent_cid),
-    )
-
 
 # --- Run one mirror ---
 
@@ -834,13 +790,7 @@ def run_mirror(cfg: MirrorConfig):
             quoted_text = clean_tweet_text(quoted_text)
         post_text = format_post(text, url, quoted_text, item.get("quoted_user"))
 
-        reply_ref = None
-        reply_to = item.get("reply_to_tweet_id")
-        if reply_to:
-            reply_ref = build_reply_ref(posted_map, reply_to, new_items + tweet_items)
-
-        label = "thread reply" if reply_ref else "post"
-        print(f"\n  [{i + 1}/{len(new_items)}] {label}: {url}")
+        print(f"\n  [{i + 1}/{len(new_items)}] post: {url}")
         print(f"    Text: {post_text[:80]}...")
 
         # Build media embed (with failsafe — never crash on media failure)
@@ -861,10 +811,7 @@ def run_mirror(cfg: MirrorConfig):
 
         try:
             rich_text = create_rich_post(bsky_client, post_text, url)
-            if reply_ref:
-                response = bsky_client.send_post(rich_text, reply_to=reply_ref, embed=embed)
-            else:
-                response = bsky_client.send_post(rich_text, embed=embed)
+            response = bsky_client.send_post(rich_text, embed=embed)
             record_posted(item["id"], url, response.uri, response.cid, cfg, posted_map)
             print(f"    Posted successfully")
         except Exception as e:
