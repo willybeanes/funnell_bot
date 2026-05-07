@@ -1,9 +1,7 @@
 name: Mirror Tweets to Bluesky
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
-  workflow_dispatch:
+  workflow_dispatch:  # manual runs only (bot runs continuously on Render)
 
 permissions:
   contents: write
