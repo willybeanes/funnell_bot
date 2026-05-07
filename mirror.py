@@ -99,8 +99,8 @@ GRAPHQL_FEATURES = {
 
 # Max image size for Bluesky (1MB)
 BSKY_MAX_IMAGE_SIZE = 1_000_000
-# Max video size for Bluesky (50MB)
-BSKY_MAX_VIDEO_SIZE = 50_000_000
+# Max video size for Bluesky (25MB — keep under Render free tier memory)
+BSKY_MAX_VIDEO_SIZE = 25_000_000
 
 
 # --- Mirror config ---
