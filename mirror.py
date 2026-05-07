@@ -359,12 +359,41 @@ class TwitterClient:
         # Quote tweet
         quoted_text = None
         quoted_user = None
+        quoted_media = []
         qt_result = tweet_result.get("quoted_status_result", {}).get("result", {})
         if qt_result:
+            if "tweet" in qt_result:
+                qt_result = qt_result["tweet"]
             qt_legacy = qt_result.get("legacy", {})
             quoted_text = qt_legacy.get("full_text", "")
             qt_user = qt_result.get("core", {}).get("user_results", {}).get("result", {}).get("legacy", {})
             quoted_user = qt_user.get("screen_name")
+            # Extract media from quoted tweet
+            qt_extended = (
+                qt_legacy.get("extended_entities", {}).get("media", [])
+                or qt_legacy.get("entities", {}).get("media", [])
+            )
+            for m in qt_extended:
+                media_type = m.get("type", "")
+                if media_type == "photo":
+                    quoted_media.append({
+                        "type": "image",
+                        "url": m.get("media_url_https", ""),
+                        "alt": m.get("ext_alt_text", ""),
+                    })
+                elif media_type in ("video", "animated_gif"):
+                    variants = m.get("video_info", {}).get("variants", [])
+                    mp4s = [v for v in variants if v.get("content_type") == "video/mp4"]
+                    if mp4s:
+                        best = max(mp4s, key=lambda v: v.get("bitrate", 0))
+                        quoted_media.append({
+                            "type": "video",
+                            "url": best["url"],
+                            "content_type": "video/mp4",
+                            "duration_ms": m.get("video_info", {}).get("duration_millis", 0),
+                            "width": m.get("original_info", {}).get("width", 0),
+                            "height": m.get("original_info", {}).get("height", 0),
+                        })
 
         # Timestamp
         created_at = legacy.get("created_at", "")
@@ -445,6 +474,7 @@ class TwitterClient:
             "quoted_user": quoted_user,
             "reply_to_tweet_id": reply_to_tweet_id,
             "media": media_items,
+            "quoted_media": quoted_media,
         }
 
 
@@ -814,10 +844,12 @@ def run_mirror(cfg: MirrorConfig):
         print(f"    Text: {post_text[:80]}...")
 
         # Build media embed (with failsafe — never crash on media failure)
+        # Fall back to quoted tweet's media if original has none
         embed = None
-        media = item.get("media", [])
+        media = item.get("media", []) or item.get("quoted_media", [])
         if media:
-            print(f"    Media: {len(media)} item(s)")
+            source = "quoted tweet" if not item.get("media") else "tweet"
+            print(f"    Media: {len(media)} item(s) (from {source})")
             try:
                 embed = build_media_embed(bsky_client, media)
                 if embed:
