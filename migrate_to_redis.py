@@ -3,6 +3,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 
 import httpx
@@ -33,13 +34,29 @@ def main():
         name = mirror_dir.name
         print(f"\nMigrating: {name}")
 
+        # Load posted_map (has URI/CID for thread detection)
+        posted_map = {}
         posted_map_file = mirror_dir / "posted_map.json"
         if posted_map_file.exists():
             posted_map = json.loads(posted_map_file.read_text())
-            redis_set(f"mirror:{name}:posted_map", posted_map)
-            print(f"  {len(posted_map)} entries in posted_map")
-        else:
-            print(f"  No posted_map.json found, skipping")
+            print(f"  {len(posted_map)} entries from posted_map.json")
+
+        # Also load posted.txt and extract tweet IDs (catches tweets not in posted_map)
+        posted_txt = mirror_dir / "posted.txt"
+        if posted_txt.exists():
+            urls = posted_txt.read_text().strip().splitlines()
+            added = 0
+            for url in urls:
+                m = re.search(r"/status/(\d+)", url)
+                if m:
+                    tweet_id = m.group(1)
+                    if tweet_id not in posted_map:
+                        posted_map[tweet_id] = {"uri": "", "cid": ""}
+                        added += 1
+            print(f"  {added} additional entries from posted.txt")
+
+        redis_set(f"mirror:{name}:posted_map", posted_map)
+        print(f"  {len(posted_map)} total entries in Redis")
 
     print("\nMigration complete!")
 
