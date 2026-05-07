@@ -406,6 +406,7 @@ class TwitterClient:
                     })
 
         # Fallback: check Twitter card for video (used for some native uploads)
+        # Also checks for HLS streams (.m3u8) used by MLB.com and other embeds
         if not media_items:
             card = tweet_result.get("card", {}).get("legacy", {})
             card_values = {
@@ -416,7 +417,7 @@ class TwitterClient:
                 card_values.get("player_stream_url", {}).get("string_value")
                 or card_values.get("amplify_url_vmap", {}).get("string_value")
             )
-            if player_url and player_url.endswith(".mp4"):
+            if player_url and (player_url.endswith(".mp4") or player_url.endswith(".m3u8")):
                 media_items.append({
                     "type": "video",
                     "url": player_url,
