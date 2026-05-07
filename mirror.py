@@ -28,6 +28,43 @@ from atproto import Client, client_utils, models
 BSKY_CHAR_LIMIT = 300
 BASE_DIR = Path(__file__).parent
 
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", "300"))  # 5 minutes
+
+# --- Redis state (Upstash REST API) ---
+
+_REDIS_URL = os.environ.get("UPSTASH_REDIS_REST_URL", "").rstrip("/")
+_REDIS_TOKEN = os.environ.get("UPSTASH_REDIS_REST_TOKEN", "")
+
+
+def _redis_available() -> bool:
+    return bool(_REDIS_URL and _REDIS_TOKEN)
+
+
+def _redis_headers() -> dict:
+    return {"Authorization": f"Bearer {_REDIS_TOKEN}"}
+
+
+def _redis_get_json(key: str):
+    try:
+        r = httpx.get(f"{_REDIS_URL}/get/{key}", headers=_redis_headers(), timeout=5)
+        result = r.json().get("result")
+        return json.loads(result) if result else None
+    except Exception as e:
+        print(f"  Redis GET error {key}: {e}")
+        return None
+
+
+def _redis_set_json(key: str, value) -> None:
+    try:
+        httpx.post(
+            _REDIS_URL,
+            headers={**_redis_headers(), "Content-Type": "application/json"},
+            json=["SET", key, json.dumps(value)],
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"  Redis SET error {key}: {e}")
+
 # Twitter's public bearer token (same one the web app uses)
 BEARER_TOKEN = (
     "AAAAAAAAAAAAAAAAAAAAANRILgAAAAAAnNwIzUejRCOuH5E6I8xnZz4puTs"
@@ -89,6 +126,11 @@ def load_mirrors() -> list[MirrorConfig]:
 # --- State tracking ---
 
 def load_posted_map(cfg: MirrorConfig) -> dict:
+    if _redis_available():
+        data = _redis_get_json(f"mirror:{cfg.name}:posted_map")
+        if data is not None:
+            return data
+    # Fallback to local file (local dev / first boot before migration)
     if cfg.posted_map_file.exists():
         try:
             return json.loads(cfg.posted_map_file.read_text())
@@ -98,10 +140,15 @@ def load_posted_map(cfg: MirrorConfig) -> dict:
 
 
 def save_posted_map(cfg: MirrorConfig, posted_map: dict) -> None:
-    cfg.posted_map_file.write_text(json.dumps(posted_map, indent=2) + "\n")
+    if _redis_available():
+        _redis_set_json(f"mirror:{cfg.name}:posted_map", posted_map)
+    else:
+        cfg.posted_map_file.write_text(json.dumps(posted_map, indent=2) + "\n")
 
 
 def load_posted_urls(cfg: MirrorConfig) -> set[str]:
+    if _redis_available():
+        return set()  # posted_map is authoritative when Redis is active
     if not cfg.posted_file.exists():
         return set()
     return set(cfg.posted_file.read_text().strip().splitlines())
@@ -118,8 +165,9 @@ def record_posted(tweet_id: str, tweet_url: str, bsky_uri: str, bsky_cid: str,
                   cfg: MirrorConfig, posted_map: dict) -> None:
     posted_map[tweet_id] = {"uri": bsky_uri, "cid": bsky_cid}
     save_posted_map(cfg, posted_map)
-    with open(cfg.posted_file, "a") as f:
-        f.write(tweet_url + "\n")
+    if not _redis_available():
+        with open(cfg.posted_file, "a") as f:
+            f.write(tweet_url + "\n")
 
 
 # --- Twitter GraphQL client ---
@@ -849,15 +897,25 @@ def main():
             seed(cfg)
         return
 
-    for cfg in mirrors:
-        try:
-            run_mirror(cfg)
-        except Exception as e:
-            print(f"\n  Error running mirror @{cfg.twitter_username}: {e}")
-            print("  Continuing to next mirror...")
-            continue
+    def run_all():
+        for cfg in mirrors:
+            try:
+                run_mirror(cfg)
+            except Exception as e:
+                print(f"\n  Error running mirror @{cfg.twitter_username}: {e}")
+                print("  Continuing to next mirror...")
+                continue
+        print("\nAll mirrors complete!")
 
-    print("\nAll mirrors complete!")
+    if "--once" in sys.argv:
+        run_all()
+        return
+
+    # Continuous polling loop (for Render)
+    while True:
+        run_all()
+        print(f"Sleeping {POLL_INTERVAL}s until next poll...\n")
+        time.sleep(POLL_INTERVAL)
 
 
 if __name__ == "__main__":
