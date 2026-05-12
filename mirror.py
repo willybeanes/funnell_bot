@@ -505,12 +505,37 @@ def fetch_tweets(cfg: MirrorConfig) -> list[dict] | None:
 
 # --- Media handling ---
 
-def download_media(url: str) -> bytes | None:
-    """Download media from Twitter. Returns bytes or None on failure."""
+def download_media(url: str, max_size: int | None = None) -> bytes | None:
+    """Download media from Twitter. Returns bytes or None on failure.
+
+    If max_size is given, the download is aborted as soon as accumulated bytes
+    exceed the limit — so we never load a 200MB video into memory just to
+    discover it's over the 25MB cap.
+    """
     try:
-        resp = httpx.get(url, timeout=60, follow_redirects=True)
-        resp.raise_for_status()
-        return resp.content
+        with httpx.stream("GET", url, timeout=60, follow_redirects=True) as resp:
+            resp.raise_for_status()
+            # Fast path: check Content-Length header before downloading anything
+            content_length = resp.headers.get("content-length")
+            if max_size and content_length:
+                try:
+                    if int(content_length) > max_size:
+                        mb = int(content_length) / 1_000_000
+                        print(f"    Warning: Media too large ({mb:.1f}MB per Content-Length), skipping")
+                        return None
+                except ValueError:
+                    pass
+            # Stream in chunks, bail out if we exceed the limit mid-download
+            chunks: list[bytes] = []
+            downloaded = 0
+            for chunk in resp.iter_bytes(chunk_size=65536):
+                downloaded += len(chunk)
+                if max_size and downloaded > max_size:
+                    mb = max_size / 1_000_000
+                    print(f"    Warning: Media exceeded {mb:.0f}MB limit during download, skipping")
+                    return None
+                chunks.append(chunk)
+            return b"".join(chunks)
     except Exception as e:
         print(f"    Warning: Failed to download media: {e}")
         return None
@@ -524,12 +549,13 @@ def upload_images_to_bsky(bsky_client: Client, media_items: list[dict]) -> model
 
     bsky_images = []
     for img in images:
-        data = download_media(img["url"])
+        # Cap initial download at 10MB; Twitter photos are never legitimately larger
+        data = download_media(img["url"], max_size=10_000_000)
         if not data:
             continue
         # Resize URL trick: Twitter serves smaller images with ?name=small
         if len(data) > BSKY_MAX_IMAGE_SIZE:
-            data = download_media(img["url"] + "?name=small")
+            data = download_media(img["url"] + "?name=small", max_size=BSKY_MAX_IMAGE_SIZE * 2)
             if not data or len(data) > BSKY_MAX_IMAGE_SIZE:
                 print(f"    Warning: Image too large, skipping")
                 continue
@@ -555,11 +581,9 @@ def upload_video_to_bsky(bsky_client: Client, video_item: dict) -> models.AppBsk
     the HLS playlist that the player needs. Raw upload_blob uploads produce
     unplayable 'Video not found' embeds.
     """
-    data = download_media(video_item["url"])
+    # max_size enforced during streaming — we never load more than 25MB into RAM
+    data = download_media(video_item["url"], max_size=BSKY_MAX_VIDEO_SIZE)
     if not data:
-        return None
-    if len(data) > BSKY_MAX_VIDEO_SIZE:
-        print(f"    Warning: Video too large ({len(data) / 1_000_000:.1f}MB), skipping")
         return None
 
     did = bsky_client.me.did
