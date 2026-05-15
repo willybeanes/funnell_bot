@@ -355,9 +355,19 @@ class TwitterClient:
         if legacy.get("retweeted_status_result"):
             return "RETWEET"
 
+        # URL entities: maps t.co short URL -> real expanded URL (YouTube, articles, etc.)
+        # These are external links that should be preserved in the post text.
+        # Media t.co links (not in entities.urls) will be stripped as before.
+        url_entities: dict[str, str] = {
+            u["url"]: u["expanded_url"]
+            for u in legacy.get("entities", {}).get("urls", [])
+            if u.get("url") and u.get("expanded_url")
+        }
+
         # Quote tweet
         quoted_text = None
         quoted_user = None
+        quoted_url_entities: dict[str, str] = {}
         quoted_media = []
         qt_result = tweet_result.get("quoted_status_result", {}).get("result", {})
         if qt_result:
@@ -367,6 +377,11 @@ class TwitterClient:
             quoted_text = qt_legacy.get("full_text", "")
             qt_user = qt_result.get("core", {}).get("user_results", {}).get("result", {}).get("legacy", {})
             quoted_user = qt_user.get("screen_name")
+            quoted_url_entities = {
+                u["url"]: u["expanded_url"]
+                for u in qt_legacy.get("entities", {}).get("urls", [])
+                if u.get("url") and u.get("expanded_url")
+            }
             # Extract media from quoted tweet
             qt_extended = (
                 qt_legacy.get("extended_entities", {}).get("media", [])
@@ -466,6 +481,8 @@ class TwitterClient:
             "created_at": tweet_time,
             "quoted_text": quoted_text,
             "quoted_user": quoted_user,
+            "url_entities": url_entities,
+            "quoted_url_entities": quoted_url_entities,
             "media": media_items,
             "quoted_media": quoted_media,
         }
@@ -699,11 +716,15 @@ def build_media_embed(bsky_client: Client, media_items: list[dict]):
 
 # --- Bluesky posting ---
 
-def clean_tweet_text(text: str) -> str:
+def clean_tweet_text(text: str, url_entities: dict[str, str] | None = None) -> str:
     # Twitter's API returns HTML-encoded text (&gt; &lt; &amp; etc.)
     text = html.unescape(text)
     text = re.sub(r"^RT @\w+:\s*", "", text)
-    # Remove t.co links (Twitter appends these for media/quote tweets)
+    # Expand known t.co links to their real URLs (YouTube, articles, etc.)
+    # before stripping — so external links survive in the post text.
+    for tco, expanded in (url_entities or {}).items():
+        text = text.replace(tco, expanded)
+    # Strip remaining t.co links (media attachments appended by Twitter)
     text = re.sub(r"\s*https://t\.co/\w+", "", text)
     return text.strip()
 
@@ -807,11 +828,11 @@ def run_mirror(cfg: MirrorConfig):
         print(f"  Scaled delays to fit in {MAX_TOTAL_DELAY // 60}m")
 
     for i, item in enumerate(new_items):
-        text = clean_tweet_text(item["text"])
+        text = clean_tweet_text(item["text"], item.get("url_entities"))
         url = item["url"]
         quoted_text = item.get("quoted_text")
         if quoted_text:
-            quoted_text = clean_tweet_text(quoted_text)
+            quoted_text = clean_tweet_text(quoted_text, item.get("quoted_url_entities"))
         post_text = format_post(text, url, quoted_text, item.get("quoted_user"))
 
         print(f"\n  [{i + 1}/{len(new_items)}] post: {url}")
