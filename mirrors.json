@@ -39,6 +39,6 @@
     "name": "pitcherlist",
     "twitter_username": "PitcherList",
     "bsky_handle": "pitcherlist-bot.bsky.social",
-    "bsky_password_env": "BSKY_APP_PASWORD_POLLACK"
+    "bsky_password_env": "BSKY_APP_PASSWORD_POLLACK"
   }
 ]
