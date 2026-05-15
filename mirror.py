@@ -905,6 +905,28 @@ def seed(cfg: MirrorConfig):
 def main():
     mirrors = load_mirrors()
 
+    # FORCE_REMOVE_IDS env var: "mirror_name:id1,id2,id3"
+    # Set this in Render's dashboard to remove specific tweet IDs from a
+    # mirror's posted state so they get picked up and posted on the next run.
+    force_remove = os.environ.get("FORCE_REMOVE_IDS", "").strip()
+    if force_remove:
+        try:
+            target_name, ids_str = force_remove.split(":", 1)
+            target_ids = [i.strip() for i in ids_str.split(",") if i.strip()]
+            for cfg in mirrors:
+                if cfg.name == target_name:
+                    posted_map = load_posted_map(cfg)
+                    removed = [id_ for id_ in target_ids if id_ in posted_map]
+                    for id_ in removed:
+                        del posted_map[id_]
+                    if removed:
+                        save_posted_map(cfg, posted_map)
+                        print(f"FORCE_REMOVE_IDS: removed {len(removed)} ID(s) from {cfg.name}: {removed}")
+                    else:
+                        print(f"FORCE_REMOVE_IDS: none of the specified IDs found in {cfg.name} state")
+        except Exception as e:
+            print(f"FORCE_REMOVE_IDS parse error: {e}")
+
     # Filter to a specific mirror if --mirror flag is provided
     mirror_filter = None
     for i, arg in enumerate(sys.argv):
