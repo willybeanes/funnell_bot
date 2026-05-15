@@ -754,17 +754,21 @@ def format_post(text: str, tweet_url: str,
     return text + suffix
 
 
+_URL_RE = re.compile(r"https?://\S+")
+
 def create_rich_post(client: Client, post_text: str, tweet_url: str):
+    """Build a TextBuilder with link facets for every URL in the post text."""
     tb = client_utils.TextBuilder()
-    url_start = post_text.find(tweet_url)
-    if url_start == -1:
-        tb.text(post_text)
-    else:
-        tb.text(post_text[:url_start])
-        tb.link(tweet_url, tweet_url)
-        remaining = post_text[url_start + len(tweet_url):]
-        if remaining:
-            tb.text(remaining)
+    last_end = 0
+    for match in _URL_RE.finditer(post_text):
+        start, end = match.start(), match.end()
+        url = match.group().rstrip(".,;:!?)")  # strip trailing punctuation
+        if start > last_end:
+            tb.text(post_text[last_end:start])
+        tb.link(url, url)
+        last_end = end
+    if last_end < len(post_text):
+        tb.text(post_text[last_end:])
     return tb
 
 
