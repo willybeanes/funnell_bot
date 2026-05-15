@@ -155,10 +155,6 @@ def load_posted_urls(cfg: MirrorConfig) -> set[str]:
 
 def is_posted(tweet_id: str, cfg: MirrorConfig, posted_map: dict, posted_urls: set[str]) -> bool:
     if tweet_id in posted_map:
-        entry = posted_map[tweet_id]
-        # Empty uri/cid means it was seeded (or a previous failed post) — treat as not posted
-        if isinstance(entry, dict) and not entry.get("uri") and not entry.get("cid"):
-            return False
         return True
     url = f"https://x.com/{cfg.twitter_username}/status/{tweet_id}"
     return url in posted_urls
