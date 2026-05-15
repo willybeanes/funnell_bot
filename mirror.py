@@ -390,10 +390,13 @@ class TwitterClient:
             for m in qt_extended:
                 media_type = m.get("type", "")
                 if media_type == "photo":
+                    orig = m.get("original_info", {})
                     quoted_media.append({
                         "type": "image",
                         "url": m.get("media_url_https", ""),
                         "alt": m.get("ext_alt_text", ""),
+                        "width": orig.get("width", 0),
+                        "height": orig.get("height", 0),
                     })
                 elif media_type in ("video", "animated_gif"):
                     variants = m.get("video_info", {}).get("variants", [])
@@ -428,10 +431,13 @@ class TwitterClient:
         for m in extended:
             media_type = m.get("type", "")
             if media_type == "photo":
+                orig = m.get("original_info", {})
                 media_items.append({
                     "type": "image",
                     "url": m.get("media_url_https", ""),
                     "alt": m.get("ext_alt_text", ""),
+                    "width": orig.get("width", 0),
+                    "height": orig.get("height", 0),
                 })
             elif media_type in ("video", "animated_gif"):
                 # Pick highest bitrate mp4 variant
@@ -578,9 +584,12 @@ def upload_images_to_bsky(bsky_client: Client, media_items: list[dict]) -> model
                 continue
         try:
             blob = bsky_client.upload_blob(data)
+            w, h = img.get("width", 0), img.get("height", 0)
+            aspect_ratio = models.AppBskyEmbedDefs.AspectRatio(width=w, height=h) if w and h else None
             bsky_images.append(models.AppBskyEmbedImages.Image(
                 image=blob.blob,
                 alt=img.get("alt", ""),
+                aspectRatio=aspect_ratio,
             ))
         except Exception as e:
             print(f"    Warning: Failed to upload image: {e}")
