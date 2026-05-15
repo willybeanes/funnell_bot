@@ -490,7 +490,7 @@ class TwitterClient:
 
 # --- Tweet fetching ---
 
-def fetch_tweets(cfg: MirrorConfig) -> list[dict] | None:
+def fetch_tweets(cfg: MirrorConfig, count: int = 20) -> list[dict] | None:
     cookies = os.environ.get("TWITTER_COOKIES", "")
 
     # Strategy 1: Cookies (most reliable for recent tweets)
@@ -500,7 +500,7 @@ def fetch_tweets(cfg: MirrorConfig) -> list[dict] | None:
             user_id = tc.get_user_id(cfg.twitter_username)
             if user_id:
                 print(f"  Resolved @{cfg.twitter_username} -> ID {user_id}")
-                tweets = tc.get_user_tweets(user_id, cfg.twitter_username, count=20)
+                tweets = tc.get_user_tweets(user_id, cfg.twitter_username, count=count)
                 if tweets:
                     print(f"  Fetched {len(tweets)} tweets (cookie auth)")
                     return tweets
@@ -511,7 +511,7 @@ def fetch_tweets(cfg: MirrorConfig) -> list[dict] | None:
         user_id = tc2.get_user_id(cfg.twitter_username)
         if user_id:
             print(f"  Resolved @{cfg.twitter_username} -> ID {user_id}")
-            tweets = tc2.get_user_tweets(user_id, cfg.twitter_username, count=20)
+            tweets = tc2.get_user_tweets(user_id, cfg.twitter_username, count=count)
             if tweets:
                 print(f"  Fetched {len(tweets)} tweets (guest token)")
                 return tweets
@@ -762,7 +762,7 @@ def create_rich_post(client: Client, post_text: str, tweet_url: str):
 
 # --- Run one mirror ---
 
-def run_mirror(cfg: MirrorConfig):
+def run_mirror(cfg: MirrorConfig, fetch_count: int = 20):
     print(f"\n{'='*50}")
     print(f"Mirror: @{cfg.twitter_username} -> {cfg.bsky_handle}")
     print(f"{'='*50}")
@@ -772,7 +772,7 @@ def run_mirror(cfg: MirrorConfig):
         print(f"  Skipping — {cfg.bsky_password_env} not set")
         return
 
-    tweet_items = fetch_tweets(cfg)
+    tweet_items = fetch_tweets(cfg, count=fetch_count)
     if tweet_items is None:
         print("  Could not fetch tweets, skipping this mirror")
         return
@@ -917,6 +917,36 @@ def main():
             print(f"Error: Mirror '{mirror_filter}' not found in mirrors.json")
             sys.exit(1)
 
+    # --count N: fetch more tweets than the default 20 (useful for backfill runs)
+    fetch_count = 20
+    for i, arg in enumerate(sys.argv):
+        if arg == "--count" and i + 1 < len(sys.argv):
+            try:
+                fetch_count = int(sys.argv[i + 1])
+            except ValueError:
+                pass
+
+    # --remove-ids id1 id2 ...: un-seed specific tweet IDs so the bot will post them
+    remove_ids: list[str] = []
+    for i, arg in enumerate(sys.argv):
+        if arg == "--remove-ids":
+            j = i + 1
+            while j < len(sys.argv) and not sys.argv[j].startswith("--"):
+                remove_ids.append(sys.argv[j])
+                j += 1
+
+    if remove_ids:
+        for cfg in mirrors:
+            posted_map = load_posted_map(cfg)
+            removed = [id_ for id_ in remove_ids if id_ in posted_map]
+            for id_ in removed:
+                del posted_map[id_]
+            if removed:
+                save_posted_map(cfg, posted_map)
+                print(f"  [{cfg.name}] Removed {len(removed)} ID(s) from posted state: {removed}")
+            else:
+                print(f"  [{cfg.name}] None of the specified IDs were in posted state")
+
     if "--seed" in sys.argv:
         for cfg in mirrors:
             seed(cfg)
@@ -925,7 +955,7 @@ def main():
     def run_all():
         for cfg in mirrors:
             try:
-                run_mirror(cfg)
+                run_mirror(cfg, fetch_count=fetch_count)
             except Exception as e:
                 print(f"\n  Error running mirror @{cfg.twitter_username}: {e}")
                 print("  Continuing to next mirror...")
