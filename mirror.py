@@ -155,6 +155,10 @@ def load_posted_urls(cfg: MirrorConfig) -> set[str]:
 
 def is_posted(tweet_id: str, cfg: MirrorConfig, posted_map: dict, posted_urls: set[str]) -> bool:
     if tweet_id in posted_map:
+        entry = posted_map[tweet_id]
+        # Empty uri/cid means it was seeded (or a previous failed post) — treat as not posted
+        if isinstance(entry, dict) and not entry.get("uri") and not entry.get("cid"):
+            return False
         return True
     url = f"https://x.com/{cfg.twitter_username}/status/{tweet_id}"
     return url in posted_urls
@@ -263,9 +267,9 @@ class TwitterClient:
         )
         if not data:
             return None
-        return self._parse_timeline(data, user_id, twitter_username)
+        return self._parse_timeline(data, user_id, twitter_username, count=count)
 
-    def _parse_timeline(self, data: dict, user_id: str, twitter_username: str) -> list[dict]:
+    def _parse_timeline(self, data: dict, user_id: str, twitter_username: str, count: int = 20) -> list[dict]:
         results = []
         cutoff = datetime.now(timezone.utc) - timedelta(days=30)
         skipped_reply = 0
@@ -320,7 +324,7 @@ class TwitterClient:
             print(f"    Filtered: {skipped_reply} replies-to-others, "
                   f"{skipped_retweet} retweets, {skipped_age} older-than-30d")
         # Hard cap: Twitter may return far more than requested count
-        return results[:20]
+        return results[:count]
 
     def _parse_entry(self, entry: dict, user_id: str, twitter_username: str) -> dict | None:
         content = entry.get("content", {})
