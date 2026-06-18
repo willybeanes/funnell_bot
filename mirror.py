@@ -114,6 +114,8 @@ class MirrorConfig:
         self.state_dir.mkdir(parents=True, exist_ok=True)
         self.posted_file = self.state_dir / "posted.txt"
         self.posted_map_file = self.state_dir / "posted_map.json"
+        # Optional: skip all tweets with ID below this threshold (inclusive start)
+        self.min_tweet_id: int | None = int(config["min_tweet_id"]) if config.get("min_tweet_id") else None
 
 
 def load_mirrors() -> list[MirrorConfig]:
@@ -795,6 +797,8 @@ def run_mirror(cfg: MirrorConfig, fetch_count: int = 20):
 
     new_items = []
     for item in reversed(tweet_items):
+        if cfg.min_tweet_id and int(item["id"]) < cfg.min_tweet_id:
+            continue  # skip tweets older than the configured start point
         if not is_posted(item["id"], cfg, posted_map, posted_urls):
             new_items.append(item)
 

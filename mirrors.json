@@ -40,5 +40,12 @@
     "twitter_username": "PitcherList",
     "bsky_handle": "pitcherlist-bot.bsky.social",
     "bsky_password_env": "BSKY_APP_PASSWORD_POLLACK"
+  },
+  {
+    "name": "scoringchanges",
+    "twitter_username": "ScoringChanges",
+    "bsky_handle": "scoringchanges-bot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_SCORING",
+    "min_tweet_id": "2067678886750732741"
   }
 ]
