@@ -47,5 +47,12 @@
     "bsky_handle": "scoringchanges-bot.bsky.social",
     "bsky_password_env": "BSKY_APP_PASSWORD_SCORING",
     "min_tweet_id": "2067678886750732741"
+  },
+  {
+    "name": "statmusefc",
+    "twitter_username": "statmusefc",
+    "bsky_handle": "statmusefc-bot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_STATSMUSE",
+    "min_tweet_id": "2094470382266778103"
   }
 ]
