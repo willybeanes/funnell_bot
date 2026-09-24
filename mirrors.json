@@ -61,5 +61,13 @@
     "bsky_handle": "pitchingninja-bot.bsky.social",
     "bsky_password_env": "BSKY_APP_PASSWORD_PITCHINGNINJA",
     "min_tweet_id": "2100189832630636686"
+  },
+  {
+    "name": "optastats",
+    "twitter_username": "OptaSTATS",
+    "bsky_handle": "optastats-bot.bsky.social",
+    "bsky_password_env": "BSKY_APP_PASSWORD_OPTASTATS",
+    "min_tweet_id": "2103138333710839850",
+    "include_self_threads": true
   }
 ]

@@ -116,6 +116,7 @@ class MirrorConfig:
         self.posted_map_file = self.state_dir / "posted_map.json"
         # Optional: skip all tweets with ID below this threshold (inclusive start)
         self.min_tweet_id: int | None = int(config["min_tweet_id"]) if config.get("min_tweet_id") else None
+        self.include_self_threads: bool = bool(config.get("include_self_threads", False))
 
 
 def load_mirrors() -> list[MirrorConfig]:
@@ -163,8 +164,11 @@ def is_posted(tweet_id: str, cfg: MirrorConfig, posted_map: dict, posted_urls: s
 
 
 def record_posted(tweet_id: str, tweet_url: str, bsky_uri: str, bsky_cid: str,
-                  cfg: MirrorConfig, posted_map: dict) -> None:
+                  cfg: MirrorConfig, posted_map: dict, root: dict | None = None) -> None:
     posted_map[tweet_id] = {"uri": bsky_uri, "cid": bsky_cid}
+    if root:
+        posted_map[tweet_id]["root_uri"] = root["uri"]
+        posted_map[tweet_id]["root_cid"] = root["cid"]
     save_posted_map(cfg, posted_map)
     if not _redis_available():
         with open(cfg.posted_file, "a") as f:
@@ -174,7 +178,8 @@ def record_posted(tweet_id: str, tweet_url: str, bsky_uri: str, bsky_cid: str,
 # --- Twitter GraphQL client ---
 
 class TwitterClient:
-    def __init__(self):
+    def __init__(self, include_self_replies: bool = False):
+        self.include_self_replies = include_self_replies
         self.client = httpx.Client(timeout=30, follow_redirects=True)
         self.headers = {
             "authorization": f"Bearer {BEARER_TOKEN}",
@@ -478,9 +483,14 @@ class TwitterClient:
                     "height": 0,
                 })
 
-        # Skip all replies (including self-replies) — only mirror top-level original tweets
+        # Skip replies. Self-replies are kept only for mirrors with include_self_threads,
+        # and are posted as Bluesky replies to their mirrored parent (never standalone).
+        reply_to_tweet_id = None
         if legacy.get("in_reply_to_user_id_str"):
-            return "REPLY"
+            if self.include_self_replies and legacy["in_reply_to_user_id_str"] == user_id:
+                reply_to_tweet_id = legacy.get("in_reply_to_status_id_str")
+            if not reply_to_tweet_id:
+                return "REPLY"
 
         return {
             "text": text,
@@ -493,6 +503,7 @@ class TwitterClient:
             "quoted_url_entities": quoted_url_entities,
             "media": media_items,
             "quoted_media": quoted_media,
+            "reply_to_tweet_id": reply_to_tweet_id,
         }
 
 
@@ -503,7 +514,7 @@ def fetch_tweets(cfg: MirrorConfig, count: int = 20) -> list[dict] | None:
 
     # Strategy 1: Cookies (most reliable for recent tweets)
     if cookies:
-        tc = TwitterClient()
+        tc = TwitterClient(include_self_replies=cfg.include_self_threads)
         if tc.activate_cookies(cookies):
             user_id = tc.get_user_id(cfg.twitter_username)
             if user_id:
@@ -514,7 +525,7 @@ def fetch_tweets(cfg: MirrorConfig, count: int = 20) -> list[dict] | None:
                     return tweets
 
     # Strategy 2: Guest token
-    tc2 = TwitterClient()
+    tc2 = TwitterClient(include_self_replies=cfg.include_self_threads)
     if tc2.activate_guest():
         user_id = tc2.get_user_id(cfg.twitter_username)
         if user_id:
@@ -852,7 +863,25 @@ def run_mirror(cfg: MirrorConfig, fetch_count: int = 20):
             quoted_text = clean_tweet_text(quoted_text, item.get("quoted_url_entities"))
         post_text = format_post(text, url, quoted_text, item.get("quoted_user"))
 
-        print(f"\n  [{i + 1}/{len(new_items)}] post: {url}")
+        # Self-thread reply: attach under the mirrored parent, or skip entirely
+        reply_ref = None
+        root = None
+        parent_id = item.get("reply_to_tweet_id")
+        if parent_id:
+            parent = posted_map.get(parent_id, {})
+            if not parent.get("uri") or not parent.get("cid"):
+                print(f"\n  Skipping self-reply {url} — parent {parent_id} was not mirrored")
+                continue
+            root = {
+                "uri": parent.get("root_uri") or parent["uri"],
+                "cid": parent.get("root_cid") or parent["cid"],
+            }
+            reply_ref = models.AppBskyFeedPost.ReplyRef(
+                parent=models.ComAtprotoRepoStrongRef.Main(uri=parent["uri"], cid=parent["cid"]),
+                root=models.ComAtprotoRepoStrongRef.Main(uri=root["uri"], cid=root["cid"]),
+            )
+
+        print(f"\n  [{i + 1}/{len(new_items)}] {'reply' if reply_ref else 'post'}: {url}")
         print(f"    Text: {post_text[:80]}...")
 
         # Build media embed (with failsafe — never crash on media failure)
@@ -873,8 +902,8 @@ def run_mirror(cfg: MirrorConfig, fetch_count: int = 20):
 
         try:
             rich_text = create_rich_post(bsky_client, post_text, url)
-            response = bsky_client.send_post(rich_text, embed=embed)
-            record_posted(item["id"], url, response.uri, response.cid, cfg, posted_map)
+            response = bsky_client.send_post(rich_text, embed=embed, reply_to=reply_ref)
+            record_posted(item["id"], url, response.uri, response.cid, cfg, posted_map, root=root)
             print(f"    Posted successfully")
         except Exception as e:
             print(f"    Error posting: {e}")
