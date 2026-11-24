@@ -60,9 +60,7 @@ EVENTS = [
      "The meeting finally breaks up. Neal bolts for the street, where it seems every "
      "person in New York City is trying to hail a cab at the same time."),
     ("cab", at(TUE, 17, 15, ET),
-     "Neal pays a stranger for dibs on a cab, only to watch it get taken out from under him. "
-     "Then he loses another one to a big, cheerful man hauling an enormous trunk. "
-     "Remember that guy."),
+     'Rush hour, snow on the way. Neal bribes a stranger to give up the cab he just hailed, only to watch another man swoop in and take it. Somewhere in this mess is a big, cheerful man with an enormous trunk. Remember that guy.'),
     ("laguardia", at(TUE, 17, 55, ET),
      "Neal makes it to LaGuardia. The flight is delayed. In the waiting area he comes face "
      "to face with the cab thief: Del Griffith, shower curtain ring salesman. "
@@ -80,15 +78,11 @@ EVENTS = [
      "Bad news from the cockpit: a blizzard has closed Chicago. The flight is being "
      "diverted to Wichita, Kansas."),
     ("wichita", at(TUE, 20, 10, CT),
-     "Touchdown in Wichita. Every hotel room in town is booked. Neal is stranded. "
-     "Del, it turns out, knows a guy."),
+     'Touchdown in Wichita. Neal and Del are stranded for the night, and rooms in town are hard to come by.'),
     ("braidwood", at(TUE, 21, 0, CT),
-     "The Braidwood Inn. Del got them a room. One room. One bed. Neal is now sharing a "
-     "motel room with the man who stole his cab."),
+     'The Braidwood Inn. Only one room left. One room. One bed. In the shuffle at check-in, Neal and Del accidentally swap credit cards. Neal is now sharing a bed with the man who stole his cab.'),
     ("have-a-point", at(TUE, 22, 0, CT),
-     "Neal finally snaps and unloads on Del: the stories, the noises, the shower curtain "
-     "rings. \"Have a point!\" Del takes it quietly, then answers: he likes himself, and "
-     "his wife likes him. Ouch."),
+     'Neal finally snaps and unloads on Del: the stories, the noises, the shower curtain rings. "Have a point!" Del takes it quietly, then answers: he likes himself, and his wife likes him. Neal is humbled.'),
     ("lights-out", at(TUE, 22, 45, CT),
      "Lights out in Wichita. Two grown men, one bed, one very small motel room. "
      "Nobody is getting much sleep."),
@@ -102,70 +96,53 @@ EVENTS = [
      "They discover the robbery. Neal's cash is gone, and so is Del's. "
      "Thanksgiving is tomorrow and they are still in Kansas."),
     ("train", at(WED, 9, 0, CT),
-     "New plan: the train. Neal says his goodbyes and settles in for an uneventful ride "
-     "to Chicago. Planes are over. Trains have begun."),
+     'Air travel is a mess, so Neal buys train tickets to Chicago for himself and Del. Separate compartments. He bids Del farewell. Planes are over. Trains have begun.'),
     ("breakdown", at(WED, 11, 30, CT),
-     "The train breaks down in the middle of nowhere in Missouri. Passengers pile out and "
-     "trudge across a field. Del, naturally, has found Neal again."),
+     'The train breaks down near Jefferson City, Missouri. Passengers are left stranded in a field. Neal spots Del struggling with his giant trunk and, against his better judgment, goes over to help.'),
     ("bus", at(WED, 13, 0, CT),
      "On a bus to St. Louis. Neal tries to lead a sing-along. It does not go well. "
      "Del takes over with the Flintstones theme and the whole bus joins in."),
     ("earrings", at(WED, 14, 30, CT),
-     "St. Louis. Low on cash, Del starts selling his shower curtain rings to strangers as "
-     "earrings. They're selling."),
+     "Low on cash, Del starts selling his shower curtain rings to strangers as earrings. They're selling."),
     ("split", at(WED, 15, 30, CT),
-     "After lunch, Neal and Del part ways. Neal heads off alone to rent a car and drive "
-     "himself home. What could go wrong?"),
+     'Over a meal in St. Louis, Neal suggests they finish the trip separately. Del is hurt. They part ways, and Neal heads to Lambert Airport to rent a car. What could go wrong?'),
     ("rental-lot", at(WED, 16, 15, CT),
-     "Neal rides the shuttle way out to the rental lot. The car isn't there. "
-     "Nothing is there. He walks all the way back across the airport, slipping into a "
-     "snowbank along the way."),
+     "Neal rides the shuttle way out to the rental lot. His car isn't there. Nothing is there. He trudges all the way back across the airport through the snow."),
     ("rental-rant", at(WED, 17, 0, CT),
      "Back at the car rental counter, Neal unloads an extraordinarily profane rant on the "
      "cheerful agent. She lets him finish, then asks for his rental agreement. "
      "He doesn't have it."),
     ("dispatcher", at(WED, 17, 30, CT),
-     "Neal mouths off to the airport cab dispatcher and gets punched in the face. "
-     "Who pulls up to rescue him? Del Griffith, in his own rental car."),
+     'Neal tries to book a taxi to Chicago, insults the dispatcher, and gets punched in the face. Who happens to pull up in a rental car and offer him a ride? Del Griffith.'),
     ("wrong-way", at(WED, 19, 15, CT),
      "Night on the interstate. Del is wrestling with his coat at the wheel. A couple across "
      "the median yells that they're going the wrong way. \"How would he know where we're "
      "going?\""),
     ("trucks", at(WED, 19, 20, CT),
-     "They are, in fact, going the wrong way, squeezed between two oncoming semis. "
-     "Neal looks over and sees the devil at the wheel. Somehow they survive. "
-     "The car mostly does too."),
+     'They are, in fact, going the wrong way, squeezed between two oncoming semis. Neal looks over and sees the devil at the wheel. Somehow they survive and pull over.'),
     ("fire", at(WED, 20, 15, CT),
-     "Del's cigarette gets into the seat. The rental car goes up in flames. "
-     "Del insists it still runs. Technically, it does."),
+     "Del's carelessly tossed cigarette sets the rental car on fire. Neal can't stop laughing. It's Del's rental car, so it's Del's problem. Right?"),
+    ("card-twist", at(WED, 20, 25, CT),
+     "Then Del confesses: he found Neal's credit card in his wallet, used it to rent the car, "
+     "and put it back in Neal's wallet. Which is in the car. Which is on fire. Neal stops laughing."),
     ("motel2", at(WED, 21, 30, CT),
-     "They limp into a motel in a charred car. The money is gone, so Neal barters for a room. "
-     "Del ends up sitting outside in the frozen, burnt-out car."),
+     'His credit cards gone, Neal trades his expensive watch for a motel room and refuses to help Del. With no money, Del tries to sleep outside in the snow and freezing cold.'),
     ("come-in", at(WED, 22, 15, CT),
-     "Neal can't stand it. He invites Del in from the cold. Out come the little bottles "
-     "from the minibar, and for the first time, the two of them are actually laughing "
-     "together."),
+     'Del wonders aloud how he always drives away the people he likes. Neal hears him and invites him in. Out come the little bottles from the minibar, and the two of them laugh about the whole disaster.'),
     ("thanksgiving", at(THU, 7, 30, CT),
-     "Happy Thanksgiving. Neal and Del hit the road in what's left of the rental car. "
-     "No windshield to speak of, no doors to speak of. Chicago is still a long way off."),
+     "Happy Thanksgiving. Neal and Del hit the road in what's left of the burnt rental car. Chicago is still a long way off."),
     ("trooper", at(THU, 9, 30, CT),
-     "Pulled over by a state trooper. The car is impounded on the spot. "
-     "Automobiles: done. They're stranded on the side of the road on Thanksgiving morning."),
+     "Pulled over by a state trooper, who impounds the car as unroadworthy. Automobiles: done. They're stranded on the side of the road on Thanksgiving morning."),
     ("truck", at(THU, 10, 30, CT),
-     "They hitch a ride in the back of a truck, bundled up in the cold, bumping their way "
-     "toward Chicago."),
+     'Del talks a trucker into giving them a ride to Chicago. The catch: they ride in the back, in the refrigerated trailer.'),
     ("chicago", at(THU, 15, 0, CT),
-     "Chicago! Neal and Del finally make it. They say a warm goodbye at the train station "
-     "and Neal hops on the L for the last leg home."),
+     'Chicago! At the L station, Neal thanks Del for getting him home. They part as friends and Neal boards the train for the last leg.'),
     ("realization", at(THU, 15, 30, CT),
-     "On the L, Neal thinks back over the last three days and something doesn't add up "
-     "about Del. He gets off and rides back to the station."),
+     "On the L, Neal thinks back over Del's odd comments and long silences over the last three days. Something isn't right. He goes back to the station."),
     ("marie", at(THU, 15, 50, CT),
-     "Del is still there, sitting alone with his trunk. He admits he has no home to go to. "
-     "His wife Marie passed away eight years ago."),
+     "Del is still there, sitting alone with his trunk. He admits he has no home. He's been living on the road since his wife Marie died eight years ago."),
     ("home", at(THU, 16, 45, CT),
-     "Neal walks through his front door with Del Griffith and his trunk. His wife Susan "
-     "smiles. Del is staying for Thanksgiving dinner."),
+     'Neal walks through his front door with Del Griffith and his trunk and introduces his family to his new friend. Del is staying for Thanksgiving.'),
     ("end", at(THU, 17, 0, CT),
      "Neal made it home for Thanksgiving. Planes, trains, automobiles, a bus, a truck, and "
      "a lot of shower curtain rings. Happy Thanksgiving from Neal, Del, and everyone at "
@@ -235,6 +212,16 @@ def run(dry_run: bool = False) -> None:
         return
 
     done = load_done()
+    # Belt and braces: also skip anything already on the account's feed,
+    # so a redeploy without saved state never double-posts.
+    try:
+        feed = client.get_author_feed(actor=BSKY_HANDLE, limit=100).feed
+        live = {item.post.record.text[:80] for item in feed}
+        for eid, _, text in events:
+            if text[:80] in live:
+                done.add(eid)
+    except Exception as e:
+        print(f"[planes_trains] Could not read own feed: {e}")
     print(f"[planes_trains] {len(done)}/{len(events)} events already handled.")
 
     while True:
