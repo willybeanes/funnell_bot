@@ -1034,6 +1034,11 @@ def main():
         run_all()
         return
 
+    # Planes, Trains and Automobiles real-time movie bot (background thread)
+    import threading
+    import planes_trains
+    threading.Thread(target=planes_trains.run_forever, daemon=True).start()
+
     # Continuous polling loop (for Render)
     while True:
         run_all()

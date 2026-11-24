@@ -62,3 +62,12 @@ python mirror.py
 ## Customization
 
 To mirror a different account, edit `TWITTER_USERNAME` (the target account) and `BSKY_HANDLE` in `mirror.py`.
+
+## Planes, Trains and Automobiles bot
+
+`planes_trains.py` posts the events of the 1987 film to
+[planes-trains-auto.bsky.social](https://bsky.app/profile/planes-trains-auto.bsky.social)
+in real time, Tuesday afternoon through Thanksgiving dinner on Thursday.
+It runs as a background thread inside `mirror.py` on Render and needs the
+`BSKY_APP_PASSWORD_PLAINS` environment variable. Preview the schedule with
+`python planes_trains.py --dry-run`. It stops on its own after the last scene.
