@@ -66,7 +66,7 @@ EVENTS = [
      "to face with the cab thief: Del Griffith, shower curtain ring salesman. "
      "Del has no idea. He'd love to chat."),
     ("six-oclock", at(TUE, 18, 0, ET),
-     "6:00 PM. Neal's flight to Chicago was supposed to leave right now. "
+     "Neal's flight to Chicago was supposed to leave right now. "
      "It has not left."),
     ("coach", at(TUE, 19, 20, ET),
      "Boarding. Neal's first-class ticket has been bumped to coach. His new seatmate? "
@@ -82,7 +82,7 @@ EVENTS = [
     ("braidwood", at(TUE, 21, 0, CT),
      'The Braidwood Inn. Only one room left. One room. One bed. In the shuffle at check-in, Neal and Del accidentally swap credit cards. Neal is now sharing a bed with the man who stole his cab.'),
     ("have-a-point", at(TUE, 22, 0, CT),
-     'Neal finally snaps and unloads on Del: the stories, the noises, the shower curtain rings. "Have a point!" Del takes it quietly, then answers: he likes himself, and his wife likes him. Neal is humbled.'),
+     'Neal finally snaps and unloads on Del: the stories, the noises, the shower curtain rings. "Have a point!" Del takes it quietly, then answers: he likes himself, and his wife likes him.'),
     ("lights-out", at(TUE, 22, 45, CT),
      "Lights out in Wichita. Two grown men, one bed, one very small motel room. "
      "Nobody is getting much sleep."),
@@ -145,9 +145,60 @@ EVENTS = [
      'Neal walks through his front door with Del Griffith and his trunk and introduces his family to his new friend. Del is staying for Thanksgiving.'),
     ("end", at(THU, 17, 0, CT),
      "Neal made it home for Thanksgiving. Planes, trains, automobiles, a bus, a truck, and "
-     "a lot of shower curtain rings. Happy Thanksgiving from Neal, Del, and everyone at "
-     "this account."),
+     "a lot of shower curtain rings. Happy Thanksgiving everyone."),
 ]
+
+
+# Where each scene happens, shown as "5:00 PM CT · Wichita, Kansas" above the post.
+LOCATIONS = {
+    "meeting": "Manhattan, New York",
+    "meeting-ends": "Manhattan, New York",
+    "cab": "Manhattan, New York",
+    "laguardia": "LaGuardia Airport, New York",
+    "six-oclock": "LaGuardia Airport, New York",
+    "coach": "LaGuardia Airport, New York",
+    "wheels-up": "In the air, New York to Chicago",
+    "diverted": "In the air, New York to Chicago",
+    "wichita": "Wichita, Kansas",
+    "braidwood": "Braidwood Inn, Wichita, Kansas",
+    "have-a-point": "Braidwood Inn, Wichita, Kansas",
+    "lights-out": "Braidwood Inn, Wichita, Kansas",
+    "robbery": "Braidwood Inn, Wichita, Kansas",
+    "pillows": "Braidwood Inn, Wichita, Kansas",
+    "robbed": "Braidwood Inn, Wichita, Kansas",
+    "train": "Wichita, Kansas",
+    "breakdown": "Near Jefferson City, Missouri",
+    "bus": "On a bus to St. Louis, Missouri",
+    "earrings": "Missouri",
+    "split": "St. Louis, Missouri",
+    "rental-lot": "Lambert Airport, St. Louis",
+    "rental-rant": "Lambert Airport, St. Louis",
+    "dispatcher": "Lambert Airport, St. Louis",
+    "wrong-way": "On the interstate, headed for Chicago",
+    "trucks": "On the interstate, headed for Chicago",
+    "fire": "Roadside, headed for Chicago",
+    "card-twist": "Roadside, headed for Chicago",
+    "motel2": "A roadside motel, headed for Chicago",
+    "come-in": "A roadside motel, headed for Chicago",
+    "thanksgiving": "On the road to Chicago",
+    "trooper": "On the road to Chicago",
+    "truck": "Refrigerated truck, headed for Chicago",
+    "chicago": "L station, Chicago, Illinois",
+    "realization": "On the L, Chicago, Illinois",
+    "marie": "L station, Chicago, Illinois",
+    "home": "Neal's house, Chicago, Illinois",
+    "end": "Neal's house, Chicago, Illinois",
+}
+TZ_LABEL = {"America/New_York": "ET", "America/Chicago": "CT"}
+
+
+def compose(eid, when, text):
+    """Add the 'local time · location' header line, if the scene has a location."""
+    place = LOCATIONS.get(eid)
+    if not place:
+        return text
+    label = TZ_LABEL[str(when.tzinfo)]
+    return f"{when.strftime('%-I:%M %p')} {label} \u00b7 {place}\n\n{text}"
 
 
 # --- State ------------------------------------------------------------------
@@ -204,7 +255,8 @@ def run(dry_run: bool = False) -> None:
 
     if dry_run:
         for eid, when, text in events:
-            print(f"{when.astimezone(ET):%a %I:%M %p ET}  [{eid}] ({len(text)} chars)\n  {text}\n")
+            full = compose(eid, when, text)
+            print(f"{when.astimezone(ET):%a %I:%M %p ET}  [{eid}] ({len(full)} chars)\n  {full}\n")
         return
 
     client = login()
@@ -216,9 +268,9 @@ def run(dry_run: bool = False) -> None:
     # so a redeploy without saved state never double-posts.
     try:
         feed = client.get_author_feed(actor=BSKY_HANDLE, limit=100).feed
-        live = {item.post.record.text[:80] for item in feed}
+        live = [item.post.record.text for item in feed]
         for eid, _, text in events:
-            if text[:80] in live:
+            if any(text[:80] in t for t in live):
                 done.add(eid)
     except Exception as e:
         print(f"[planes_trains] Could not read own feed: {e}")
@@ -241,7 +293,7 @@ def run(dry_run: bool = False) -> None:
             print(f"[planes_trains] Skipping stale event [{eid}] (was due {when}).")
         else:
             try:
-                client.send_post(text=text)
+                client.send_post(text=compose(eid, when, text))
                 print(f"[planes_trains] Posted [{eid}]: {text[:60]}...")
             except Exception as e:
                 print(f"[planes_trains] Post failed for [{eid}]: {e}; retrying shortly.")
@@ -265,7 +317,9 @@ def run_forever() -> None:
 
 
 for _eid, _when, _text in EVENTS:
-    assert len(_text) <= BSKY_CHAR_LIMIT, f"{_eid} is {len(_text)} chars"
+    _full = compose(_eid, _when, _text)
+    assert len(_full) <= BSKY_CHAR_LIMIT, f"{_eid} is {len(_full)} chars"
+    assert _eid in LOCATIONS or _eid == "intro", f"{_eid} has no location"
 
 
 if __name__ == "__main__":
