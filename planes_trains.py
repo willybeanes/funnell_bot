@@ -82,7 +82,7 @@ EVENTS = [
     ("braidwood", at(TUE, 21, 0, CT),
      'The Braidwood Inn. Only one room left. One room. One bed. In the shuffle at check-in, Neal and Del accidentally swap credit cards. Neal is now sharing a bed with the man who stole his cab.'),
     ("have-a-point", at(TUE, 22, 0, CT),
-     'Neal finally snaps and unloads on Del: the stories, the noises, the shower curtain rings. "Have a point!" Del takes it quietly, then answers: he likes himself, and his wife likes him. Neal is humbled.'),
+     'Neal finally snaps and unloads on Del: the stories, the noises, the shower curtain rings. "Have a point!" Del takes it quietly, then answers: he likes himself, and his wife likes him.'),
     ("lights-out", at(TUE, 22, 45, CT),
      "Lights out in Wichita. Two grown men, one bed, one very small motel room. "
      "Nobody is getting much sleep."),
@@ -145,8 +145,7 @@ EVENTS = [
      'Neal walks through his front door with Del Griffith and his trunk and introduces his family to his new friend. Del is staying for Thanksgiving.'),
     ("end", at(THU, 17, 0, CT),
      "Neal made it home for Thanksgiving. Planes, trains, automobiles, a bus, a truck, and "
-     "a lot of shower curtain rings. Happy Thanksgiving from Neal, Del, and everyone at "
-     "this account."),
+     "a lot of shower curtain rings. Happy Thanksgiving everyone."),
 ]
 
 
