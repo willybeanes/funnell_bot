@@ -147,6 +147,36 @@ EVENTS = [
     ("end", at(THU, 17, 0, CT),
      "Neal made it home for Thanksgiving. Planes, trains, automobiles, a bus, a truck, and "
      "a lot of shower curtain rings. Happy Thanksgiving everyone."),
+    ("bts-plane", at(TUE, 18, 55, CT),
+     '🎬 The plane ride ran much longer in the original cut. Deleted scenes include Del telling Neal how he landed the U.S. Navy\'s shower curtain ring contract (and making him guess how many rings), a disastrous airplane food scene, and Del needling Neal until he calls him a "blabbermouth."'),
+    ("bts-origin", at(TUE, 19, 50, CT),
+     '🎬 This part is personal. Before Hollywood, John Hughes was a Chicago ad copywriter like Neal, and a winter storm wrecked his own flight home from a New York presentation. Accounts of his real trip vary, but it took days, and it became the seed of this movie.'),
+    ("bts-pillows", at(WED, 6, 40, CT),
+     '🎬 "Those aren\'t pillows!" isn\'t in John Hughes\'s script. And according to the film\'s unit publicist, Del\'s answer to where his other hand is ("between two pillows") was John Candy\'s own invention on set.'),
+    ("bts-susan", at(WED, 7, 30, CT),
+     "🎬 Meanwhile, back in Chicago... In the original cut, Neal's wife Susan grows suspicious that his string of travel delays is cover for an affair. The subplot was cut, but it's why some fans think she looks so relieved at the end."),
+    ("bts-release", at(WED, 8, 15, CT),
+     '🎬 Planes, Trains and Automobiles opened in theaters on November 25, 1987, the day before Thanksgiving. 39 years ago today.'),
+    ("bts-bus", at(WED, 13, 10, CT),
+     '🎬 The Flintstones sing-along isn\'t in the original script. A different bus scene, with Del leading "99 Bottles of Beer," was shot and cut. It finally surfaced among the deleted scenes on the 2022 4K release.'),
+    ("bts-payback", at(WED, 15, 40, CT),
+     "🎬 Editor Paul Hirsch has said early test audiences started to see Del as mooching off Neal, since Neal kept paying for everything. One cut moment had Del asking for Neal's address so he could pay him back."),
+    ("bts-mcclurg", at(WED, 16, 40, CT),
+     '🎬 Up next: the rental counter. Edie McClurg, who plays the cheerful agent, reportedly improvised the Thanksgiving phone call Neal overhears as he walks up to her desk.'),
+    ("bts-rating", at(WED, 17, 10, CT),
+     "🎬 That rant contains the F-word 18 times (19 counting the agent's reply), and it's the only reason the movie is rated R. Paramount appealed and lost. A swear-free version was also shot for TV."),
+    ("bts-cards", at(WED, 20, 35, CT),
+     "🎬 The credit card mix-up was reportedly a bigger subplot in John Hughes's original cut, trimmed for being too complicated. What's left is the setup in Wichita and this payoff."),
+    ("bts-mckean", at(THU, 9, 40, CT),
+     '🎬 The state trooper is Michael McKean, best known at the time for co-writing and starring in This Is Spinal Tap.'),
+    ("bts-monologue", at(THU, 16, 0, CT),
+     "🎬 In the script, Del's confession is a long, heartbreaking monologue. Steve Martin has said Candy made him cry every time they shot it, and he never understood why it was cut down to almost nothing. Candy is said to have improvised part of what's left."),
+    ("bts-ending", at(THU, 16, 55, CT),
+     "🎬 John Hughes's script carried on into Thanksgiving dinner at the Page house. That longer ending was cut, so the film closes on Neal and Del's friendship instead."),
+    ("bts-cut", at(THU, 17, 15, CT),
+     '🎬 Roll credits. The finished film runs 93 minutes, but editor Paul Hirsch has said the first assembly ran about 225 minutes. About 75 minutes of that lost footage finally surfaced on the 35th-anniversary 4K release in 2022.'),
+    ("bts-candy", at(THU, 17, 30, CT),
+     '🎬 John Candy died in 1994 at just 43. Del Griffith is remembered as one of his finest roles. Thanks for following along with Neal and Del this week.'),
 ]
 
 
@@ -358,7 +388,7 @@ def run_forever() -> None:
 for _eid, _when, _text in EVENTS:
     _full = compose(_eid, _when, _text)
     assert len(_full) <= BSKY_CHAR_LIMIT, f"{_eid} is {len(_full)} chars"
-    assert _eid in LOCATIONS or _eid == "intro", f"{_eid} has no location"
+    assert _eid in LOCATIONS or _eid == "intro" or _eid.startswith("bts-"), f"{_eid} has no location"
 
 
 if __name__ == "__main__":
