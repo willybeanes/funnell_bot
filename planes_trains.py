@@ -66,7 +66,7 @@ EVENTS = [
      "to face with the cab thief: Del Griffith, shower curtain ring salesman. "
      "Del has no idea. He'd love to chat."),
     ("six-oclock", at(TUE, 18, 0, ET),
-     "6:00 PM. Neal's flight to Chicago was supposed to leave right now. "
+     "Neal's flight to Chicago was supposed to leave right now. "
      "It has not left."),
     ("coach", at(TUE, 19, 20, ET),
      "Boarding. Neal's first-class ticket has been bumped to coach. His new seatmate? "
@@ -147,31 +147,59 @@ EVENTS = [
      "Neal made it home for Thanksgiving. Planes, trains, automobiles, a bus, a truck, and "
      "a lot of shower curtain rings. Happy Thanksgiving from Neal, Del, and everyone at "
      "this account."),
-    ("bts-bacon", at(TUE, 17, 40, CT),
-     "🎬 Behind the scenes: The man who swoops in and steals Neal's cab is Kevin Bacon. John Hughes was finishing his next film, She's Having a Baby, starring Bacon, while shooting this one, and Bacon agreed to a quick cameo."),
-    ("bts-origin", at(TUE, 19, 15, CT),
-     '🎬 Behind the scenes: Before Hollywood, John Hughes was an ad copywriter in Chicago, just like Neal. A winter storm wrecked his own flight home from a New York presentation, and his long, roundabout trip back became the seed of this movie.'),
-    ("bts-rewrites", at(TUE, 23, 30, CT),
-     '🎬 Behind the scenes: Editor Paul Hirsch has said Hughes would rewrite scenes the night before shooting and hand the new pages to Martin and Candy, and the scenes kept getting longer and longer.'),
-    ("bts-release", at(WED, 8, 15, CT),
-     '🎬 Behind the scenes: Planes, Trains and Automobiles opened in theaters on November 25, 1987, the day before Thanksgiving. 39 years ago today.'),
-    ("bts-assembly", at(WED, 10, 15, CT),
-     "🎬 Behind the scenes: The finished film runs 93 minutes. According to editor Paul Hirsch, the first assembly ran about 225 minutes. That's nearly four hours of Neal and Del."),
-    ("bts-deleted", at(WED, 12, 15, CT),
-     '🎬 Behind the scenes: For the 35th anniversary in 2022, roughly 75 minutes of long-lost deleted and extended scenes were released on 4K, much of it John Candy riffing. Some scenes from the original cut are still missing.'),
-    ("bts-mcclurg", at(WED, 16, 40, CT),
-     '🎬 Behind the scenes: Coming up: the rental counter. Edie McClurg, who plays the cheerful agent, reportedly improvised the Thanksgiving phone call Neal overhears as he walks up to her desk.'),
-    ("bts-rating", at(WED, 17, 10, CT),
-     "🎬 Behind the scenes: That rant contains the F-word 18 times (19 if you count the agent's reply). It's the only reason the film is rated R, the first R-rated movie John Hughes directed."),
-    ("bts-reunion", at(WED, 23, 0, CT),
-     '🎬 Behind the scenes: Hughes and John Candy kept working together after this film: Hughes wrote The Great Outdoors (1988) and wrote and directed Uncle Buck (1989), both starring Candy.'),
-    ("bts-mckean", at(THU, 11, 30, CT),
-     '🎬 Behind the scenes: The state trooper who impounds the car is Michael McKean, best known at the time for co-writing and starring in This Is Spinal Tap.'),
-    ("bts-appeal", at(THU, 13, 0, CT),
-     '🎬 Behind the scenes: Paramount appealed the R rating, but the MPAA upheld it. The filmmakers also shot a version of the rental car rant without the swearing, for TV broadcasts.'),
-    ("bts-candy", at(THU, 17, 30, CT),
-     '🎬 Behind the scenes: John Candy died in 1994 at just 43. Del Griffith is remembered as one of his finest roles. Thanks for following along with Neal and Del this week.'),
 ]
+
+
+# Where each scene happens, shown as "5:00 PM CT · Wichita, Kansas" above the post.
+LOCATIONS = {
+    "meeting": "Manhattan, New York",
+    "meeting-ends": "Manhattan, New York",
+    "cab": "Manhattan, New York",
+    "laguardia": "LaGuardia Airport, New York",
+    "six-oclock": "LaGuardia Airport, New York",
+    "coach": "LaGuardia Airport, New York",
+    "wheels-up": "In the air, New York to Chicago",
+    "diverted": "In the air, New York to Chicago",
+    "wichita": "Wichita, Kansas",
+    "braidwood": "Braidwood Inn, Wichita, Kansas",
+    "have-a-point": "Braidwood Inn, Wichita, Kansas",
+    "lights-out": "Braidwood Inn, Wichita, Kansas",
+    "robbery": "Braidwood Inn, Wichita, Kansas",
+    "pillows": "Braidwood Inn, Wichita, Kansas",
+    "robbed": "Braidwood Inn, Wichita, Kansas",
+    "train": "Wichita, Kansas",
+    "breakdown": "Near Jefferson City, Missouri",
+    "bus": "On a bus to St. Louis, Missouri",
+    "earrings": "Missouri",
+    "split": "St. Louis, Missouri",
+    "rental-lot": "Lambert Airport, St. Louis",
+    "rental-rant": "Lambert Airport, St. Louis",
+    "dispatcher": "Lambert Airport, St. Louis",
+    "wrong-way": "On the interstate, headed for Chicago",
+    "trucks": "On the interstate, headed for Chicago",
+    "fire": "Roadside, headed for Chicago",
+    "card-twist": "Roadside, headed for Chicago",
+    "motel2": "A roadside motel, headed for Chicago",
+    "come-in": "A roadside motel, headed for Chicago",
+    "thanksgiving": "On the road to Chicago",
+    "trooper": "On the road to Chicago",
+    "truck": "Refrigerated truck, headed for Chicago",
+    "chicago": "L station, Chicago, Illinois",
+    "realization": "On the L, Chicago, Illinois",
+    "marie": "L station, Chicago, Illinois",
+    "home": "Neal's house, Chicago, Illinois",
+    "end": "Neal's house, Chicago, Illinois",
+}
+TZ_LABEL = {"America/New_York": "ET", "America/Chicago": "CT"}
+
+
+def compose(eid, when, text):
+    """Add the 'local time · location' header line, if the scene has a location."""
+    place = LOCATIONS.get(eid)
+    if not place:
+        return text
+    label = TZ_LABEL[str(when.tzinfo)]
+    return f"{when.strftime('%-I:%M %p')} {label} \u00b7 {place}\n\n{text}"
 
 
 # --- State ------------------------------------------------------------------
@@ -228,7 +256,8 @@ def run(dry_run: bool = False) -> None:
 
     if dry_run:
         for eid, when, text in events:
-            print(f"{when.astimezone(ET):%a %I:%M %p ET}  [{eid}] ({len(text)} chars)\n  {text}\n")
+            full = compose(eid, when, text)
+            print(f"{when.astimezone(ET):%a %I:%M %p ET}  [{eid}] ({len(full)} chars)\n  {full}\n")
         return
 
     client = login()
@@ -240,9 +269,9 @@ def run(dry_run: bool = False) -> None:
     # so a redeploy without saved state never double-posts.
     try:
         feed = client.get_author_feed(actor=BSKY_HANDLE, limit=100).feed
-        live = {item.post.record.text[:80] for item in feed}
+        live = [item.post.record.text for item in feed]
         for eid, _, text in events:
-            if text[:80] in live:
+            if any(text[:80] in t for t in live):
                 done.add(eid)
     except Exception as e:
         print(f"[planes_trains] Could not read own feed: {e}")
@@ -265,7 +294,7 @@ def run(dry_run: bool = False) -> None:
             print(f"[planes_trains] Skipping stale event [{eid}] (was due {when}).")
         else:
             try:
-                client.send_post(text=text)
+                client.send_post(text=compose(eid, when, text))
                 print(f"[planes_trains] Posted [{eid}]: {text[:60]}...")
             except Exception as e:
                 print(f"[planes_trains] Post failed for [{eid}]: {e}; retrying shortly.")
@@ -289,7 +318,9 @@ def run_forever() -> None:
 
 
 for _eid, _when, _text in EVENTS:
-    assert len(_text) <= BSKY_CHAR_LIMIT, f"{_eid} is {len(_text)} chars"
+    _full = compose(_eid, _when, _text)
+    assert len(_full) <= BSKY_CHAR_LIMIT, f"{_eid} is {len(_full)} chars"
+    assert _eid in LOCATIONS or _eid == "intro", f"{_eid} has no location"
 
 
 if __name__ == "__main__":
