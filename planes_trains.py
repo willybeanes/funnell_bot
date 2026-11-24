@@ -144,9 +144,6 @@ EVENTS = [
      "Del is still there, sitting alone with his trunk. He admits he has no home. He's been living on the road since his wife Marie died eight years ago."),
     ("home", at(THU, 16, 45, CT),
      'Neal walks through his front door with Del Griffith and his trunk and introduces his family to his new friend. Del is staying for Thanksgiving.'),
-    ("end", at(THU, 17, 0, CT),
-     "Neal made it home for Thanksgiving. Planes, trains, automobiles, a bus, a truck, and "
-     "a lot of shower curtain rings. Happy Thanksgiving everyone."),
     ("bts-plane", at(TUE, 18, 55, CT),
      '🎬 The plane ride ran much longer in the original cut. Deleted scenes include Del telling Neal how he landed the U.S. Navy\'s shower curtain ring contract (and making him guess how many rings), a disastrous airplane food scene, and Del needling Neal until he calls him a "blabbermouth."'),
     ("bts-origin", at(TUE, 19, 50, CT),
@@ -171,12 +168,10 @@ EVENTS = [
      '🎬 The state trooper is Michael McKean, best known at the time for co-writing and starring in This Is Spinal Tap.'),
     ("bts-monologue", at(THU, 16, 0, CT),
      "🎬 In the script, Del's confession is a long, heartbreaking monologue. Steve Martin has said Candy made him cry every time they shot it, and he never understood why it was cut down to almost nothing. Candy is said to have improvised part of what's left."),
-    ("bts-ending", at(THU, 16, 55, CT),
+    ("bts-ending", at(THU, 16, 50, CT),
      "🎬 John Hughes's script carried on into Thanksgiving dinner at the Page house. That longer ending was cut, so the film closes on Neal and Del's friendship instead."),
-    ("bts-cut", at(THU, 17, 15, CT),
-     '🎬 Roll credits. The finished film runs 93 minutes, but editor Paul Hirsch has said the first assembly ran about 225 minutes. About 75 minutes of that lost footage finally surfaced on the 35th-anniversary 4K release in 2022.'),
-    ("bts-candy", at(THU, 17, 30, CT),
-     '🎬 John Candy died in 1994 at just 43. Del Griffith is remembered as one of his finest roles. Thanks for following along with Neal and Del this week.'),
+    ("bts-candy", at(THU, 16, 55, CT),
+     '🎬 John Candy died in 1994 at just 43. Thirty years later, Steve Martin said: "John\'s comedy lives on, but my memory of him has the words \'kindness\' and \'sweetness\' in the headlines." Thanks for following along with Neal and Del this week.'),
 ]
 
 
@@ -218,7 +213,6 @@ LOCATIONS = {
     "realization": "On the L, Chicago, Illinois",
     "marie": "L station, Chicago, Illinois",
     "home": "Neal's house, Chicago, Illinois",
-    "end": "Neal's house, Chicago, Illinois",
 }
 TZ_LABEL = {"America/New_York": "ET", "America/Chicago": "CT"}
 
