@@ -145,8 +145,7 @@ EVENTS = [
     ("home", at(THU, 16, 45, CT),
      'Neal walks through his front door with Del Griffith and his trunk and introduces his family to his new friend. Del is staying for Thanksgiving.'),
     ("end", at(THU, 17, 0, CT),
-     "Neal made it home for Thanksgiving. Planes, trains, automobiles, a bus, a truck, and "
-     "a lot of shower curtain rings. Happy Thanksgiving everyone."),
+     'Three days, two motels, one burnt-out car, a bus, a truck, and a lot of shower curtain rings. Neal Page is finally home for Thanksgiving, and he brought a friend.'),
     ("bts-plane", at(TUE, 18, 55, CT),
      '🎬 The plane ride ran much longer in the original cut. Deleted scenes include Del telling Neal how he landed the U.S. Navy\'s shower curtain ring contract (and making him guess how many rings), a disastrous airplane food scene, and Del needling Neal until he calls him a "blabbermouth."'),
     ("bts-origin", at(TUE, 19, 50, CT),
@@ -173,9 +172,9 @@ EVENTS = [
      "🎬 In the script, Del's confession is a long, heartbreaking monologue. Steve Martin has said Candy made him cry every time they shot it, and he never understood why it was cut down to almost nothing. Candy is said to have improvised part of what's left."),
     ("bts-ending", at(THU, 16, 55, CT),
      "🎬 John Hughes's script carried on into Thanksgiving dinner at the Page house. That longer ending was cut, so the film closes on Neal and Del's friendship instead."),
-    ("bts-cut", at(THU, 17, 15, CT),
-     '🎬 Roll credits. The finished film runs 93 minutes, but editor Paul Hirsch has said the first assembly ran about 225 minutes. About 75 minutes of that lost footage finally surfaced on the 35th-anniversary 4K release in 2022.'),
-    ("bts-candy", at(THU, 17, 30, CT),
+    ("bts-cut", at(THU, 16, 58, CT),
+     '🎬 One more from the cutting room: the finished film runs 93 minutes, but editor Paul Hirsch has said the first assembly ran about 225 minutes. About 75 minutes of that lost footage finally surfaced on the 35th-anniversary 4K release in 2022.'),
+    ("bts-candy", at(THU, 17, 5, CT),
      '🎬 John Candy died in 1994 at just 43. Del Griffith is remembered as one of his finest roles. Thanks for following along with Neal and Del this week.'),
 ]
 
