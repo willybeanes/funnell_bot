@@ -147,6 +147,30 @@ EVENTS = [
      "Neal made it home for Thanksgiving. Planes, trains, automobiles, a bus, a truck, and "
      "a lot of shower curtain rings. Happy Thanksgiving from Neal, Del, and everyone at "
      "this account."),
+    ("bts-bacon", at(TUE, 17, 40, CT),
+     "🎬 Behind the scenes: The man who swoops in and steals Neal's cab is Kevin Bacon. John Hughes was finishing his next film, She's Having a Baby, starring Bacon, while shooting this one, and Bacon agreed to a quick cameo."),
+    ("bts-origin", at(TUE, 19, 15, CT),
+     '🎬 Behind the scenes: Before Hollywood, John Hughes was an ad copywriter in Chicago, just like Neal. A winter storm wrecked his own flight home from a New York presentation, and his long, roundabout trip back became the seed of this movie.'),
+    ("bts-rewrites", at(TUE, 23, 30, CT),
+     '🎬 Behind the scenes: Editor Paul Hirsch has said Hughes would rewrite scenes the night before shooting and hand the new pages to Martin and Candy, and the scenes kept getting longer and longer.'),
+    ("bts-release", at(WED, 8, 15, CT),
+     '🎬 Behind the scenes: Planes, Trains and Automobiles opened in theaters on November 25, 1987, the day before Thanksgiving. 39 years ago today.'),
+    ("bts-assembly", at(WED, 10, 15, CT),
+     "🎬 Behind the scenes: The finished film runs 93 minutes. According to editor Paul Hirsch, the first assembly ran about 225 minutes. That's nearly four hours of Neal and Del."),
+    ("bts-deleted", at(WED, 12, 15, CT),
+     '🎬 Behind the scenes: For the 35th anniversary in 2022, roughly 75 minutes of long-lost deleted and extended scenes were released on 4K, much of it John Candy riffing. Some scenes from the original cut are still missing.'),
+    ("bts-mcclurg", at(WED, 16, 40, CT),
+     '🎬 Behind the scenes: Coming up: the rental counter. Edie McClurg, who plays the cheerful agent, reportedly improvised the Thanksgiving phone call Neal overhears as he walks up to her desk.'),
+    ("bts-rating", at(WED, 17, 10, CT),
+     "🎬 Behind the scenes: That rant contains the F-word 18 times (19 if you count the agent's reply). It's the only reason the film is rated R, the first R-rated movie John Hughes directed."),
+    ("bts-reunion", at(WED, 23, 0, CT),
+     '🎬 Behind the scenes: Hughes and John Candy kept working together after this film: Hughes wrote The Great Outdoors (1988) and wrote and directed Uncle Buck (1989), both starring Candy.'),
+    ("bts-mckean", at(THU, 11, 30, CT),
+     '🎬 Behind the scenes: The state trooper who impounds the car is Michael McKean, best known at the time for co-writing and starring in This Is Spinal Tap.'),
+    ("bts-appeal", at(THU, 13, 0, CT),
+     '🎬 Behind the scenes: Paramount appealed the R rating, but the MPAA upheld it. The filmmakers also shot a version of the rental car rant without the swearing, for TV broadcasts.'),
+    ("bts-candy", at(THU, 17, 30, CT),
+     '🎬 Behind the scenes: John Candy died in 1994 at just 43. Del Griffith is remembered as one of his finest roles. Thanks for following along with Neal and Del this week.'),
 ]
 
 
