@@ -31,6 +31,7 @@ BSKY_PASSWORD_ENV = "BSKY_APP_PASSWORD_PLAINS"
 STATE_KEY = "movie:planes_trains:posted"
 STATE_FILE = Path(__file__).parent / "state" / "planes_trains" / "posted.json"
 CHECK_INTERVAL = 30  # seconds between schedule checks
+STARTUP_DELAY = int(os.environ.get("PTA_STARTUP_DELAY", "120"))
 GRACE_MINUTES = int(os.environ.get("PTA_GRACE_MINUTES", "120"))
 BSKY_CHAR_LIMIT = 300
 
@@ -235,6 +236,36 @@ def save_done(done: set[str]) -> None:
     STATE_FILE.write_text(json.dumps(value))
 
 
+def already_on_feed(client, text) -> bool | None:
+    """True if this scene's main text is already on the account (None if unknown)."""
+    try:
+        feed = client.get_author_feed(actor=BSKY_HANDLE, limit=100).feed
+    except Exception as e:
+        print(f"[planes_trains] Could not read own feed: {e}")
+        return None
+    return any(text[:80] in item.post.record.text for item in feed)
+
+
+def claim(eid) -> bool:
+    """Atomically claim an event in Redis so only one running copy can post it.
+
+    During a Render redeploy the old and new copies briefly run side by side;
+    whichever claims first posts, the other skips. Without Redis, always True.
+    """
+    if not (_REDIS_URL and _REDIS_TOKEN):
+        return True
+    try:
+        r = httpx.post(_REDIS_URL,
+                       headers={"Authorization": f"Bearer {_REDIS_TOKEN}",
+                                "Content-Type": "application/json"},
+                       json=["SET", f"{STATE_KEY}:claim:{eid}", "1", "NX", "EX", "604800"],
+                       timeout=10)
+        return r.json().get("result") == "OK"
+    except Exception as e:
+        print(f"[planes_trains] Redis claim error for [{eid}]: {e}")
+        return True
+
+
 # --- Posting ----------------------------------------------------------------
 
 def login():
@@ -263,15 +294,15 @@ def run(dry_run: bool = False) -> None:
     if client is None:
         return
 
+    # On a redeploy the previous copy keeps running for a short while. Wait
+    # for it to shut down before doing anything, so the two never overlap.
+    print(f"[planes_trains] Waiting {STARTUP_DELAY}s for any previous copy to stop...")
+    time.sleep(STARTUP_DELAY)
+
     done = load_done()
-    # Belt and braces: also skip anything already on the account's feed,
-    # so a redeploy without saved state never double-posts.
     try:
-        feed = client.get_author_feed(actor=BSKY_HANDLE, limit=100).feed
-        live = [item.post.record.text for item in feed]
-        for eid, _, text in events:
-            if any(text[:80] in t for t in live):
-                done.add(eid)
+        live = [i.post.record.text for i in client.get_author_feed(actor=BSKY_HANDLE, limit=100).feed]
+        done |= {eid for eid, _, text in events if any(text[:80] in t for t in live)}
     except Exception as e:
         print(f"[planes_trains] Could not read own feed: {e}")
     print(f"[planes_trains] {len(done)}/{len(events)} events already handled.")
@@ -292,6 +323,14 @@ def run(dry_run: bool = False) -> None:
         if now - when > timedelta(minutes=GRACE_MINUTES):
             print(f"[planes_trains] Skipping stale event [{eid}] (was due {when}).")
         else:
+            # Last-second checks right before posting: did another copy of the
+            # bot already post or claim this scene?
+            done |= load_done()
+            if eid in done or already_on_feed(client, text) or not claim(eid):
+                print(f"[planes_trains] [{eid}] already posted elsewhere; skipping.")
+                done.add(eid)
+                save_done(done)
+                continue
             try:
                 client.send_post(text=compose(eid, when, text))
                 print(f"[planes_trains] Posted [{eid}]: {text[:60]}...")
