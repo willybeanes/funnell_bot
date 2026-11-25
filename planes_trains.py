@@ -79,9 +79,9 @@ EVENTS = [
      "Bad news from the cockpit: a blizzard has closed Chicago. The flight is being "
      "diverted to Wichita, Kansas."),
     ("wichita", at(TUE, 20, 10, CT),
-     'Touchdown in Wichita. Neal and Del are stranded for the night, and rooms in town are hard to come by.'),
+     "Touchdown in Wichita. Neal can't find a room anywhere. Del has one reserved, and he'll share it if Neal pays for the cab."),
     ("braidwood", at(TUE, 21, 0, CT),
-     'The Braidwood Inn. Only one room left. One room. One bed. In the shuffle at check-in, Neal and Del accidentally swap credit cards. Neal is now sharing a bed with the man who stole his cab.'),
+     "The Braidwood Inn. Del's room has exactly one bed. In the shuffle at check-in, Neal and Del accidentally swap credit cards. Neal is now sharing a bed with the man who stole his cab."),
     ("have-a-point", at(TUE, 22, 0, CT),
      'Neal finally snaps and unloads on Del: the stories, the noises, the shower curtain rings. "Have a point!" Del takes it quietly, then answers: he likes himself, and his wife likes him.'),
     ("lights-out", at(TUE, 22, 45, CT),
@@ -94,17 +94,15 @@ EVENTS = [
      "Wednesday morning. Neal and Del wake up a bit closer than they went to sleep. "
      "\"Those aren't pillows!\""),
     ("robbed", at(WED, 7, 15, CT),
-     "They discover the robbery. Neal's cash is gone, and so is Del's. "
-     "Thanksgiving is tomorrow and they are still in Kansas."),
+     "Over breakfast, they discover the robbery. Neal's cash is gone, and he accuses Del, until Del's wallet turns out to be empty too. Thanksgiving is tomorrow and they are still in Kansas."),
     ("train", at(WED, 9, 0, CT),
      'Air travel is a mess, so Neal buys train tickets to Chicago for himself and Del. Separate compartments. He bids Del farewell. Planes are over. Trains have begun.'),
     ("breakdown", at(WED, 11, 30, CT),
      'The train breaks down near Jefferson City, Missouri. Passengers are left stranded in a field. Neal spots Del struggling with his giant trunk and, against his better judgment, goes over to help.'),
     ("bus", at(WED, 13, 0, CT),
-     "On a bus to St. Louis. Neal tries to lead a sing-along. It does not go well. "
-     "Del takes over with the Flintstones theme and the whole bus joins in."),
-    ("earrings", at(WED, 14, 30, CT),
-     "Low on cash, Del starts selling his shower curtain rings to strangers as earrings. They're selling."),
+     'On a bus to St. Louis. Neal tries to start a sing-along with "Three Coins in the Fountain." Nobody knows it. Del takes over with "Meet the Flintstones" and the whole bus joins in.'),
+    ("earrings", at(WED, 12, 15, CT),
+     'Stranded in Jefferson City and low on cash, Del sells his shower curtain rings to passersby as earrings. "Czechoslovakian ivory." It works. He raises enough for two bus tickets to St. Louis.'),
     ("split", at(WED, 15, 30, CT),
      'Over a meal in St. Louis, Neal suggests they finish the trip separately. Del is hurt. They part ways, and Neal heads to Lambert Airport to rent a car. What could go wrong?'),
     ("rental-lot", at(WED, 16, 15, CT),
@@ -116,9 +114,7 @@ EVENTS = [
     ("dispatcher", at(WED, 17, 30, CT),
      'Neal tries to book a taxi to Chicago, insults the dispatcher, and gets punched in the face. Who happens to pull up in a rental car and offer him a ride? Del Griffith.'),
     ("wrong-way", at(WED, 19, 15, CT),
-     "Night on the interstate. Del is wrestling with his coat at the wheel. A couple across "
-     "the median yells that they're going the wrong way. \"How would he know where we're "
-     "going?\""),
+     "Night on the interstate. Del is wrestling with his coat at the wheel. A couple across the median screams that they're going the wrong way. Del isn't buying it."),
     ("trucks", at(WED, 19, 20, CT),
      'They are, in fact, going the wrong way, squeezed between two oncoming semis. Neal looks over and sees the devil at the wheel. Somehow they survive and pull over.'),
     ("fire", at(WED, 20, 15, CT),
@@ -195,7 +191,7 @@ LOCATIONS = {
     "train": "Wichita, Kansas",
     "breakdown": "Near Jefferson City, Missouri",
     "bus": "On a bus to St. Louis, Missouri",
-    "earrings": "Missouri",
+    "earrings": "Jefferson City, Missouri",
     "split": "St. Louis, Missouri",
     "rental-lot": "Lambert Airport, St. Louis",
     "rental-rant": "Lambert Airport, St. Louis",
