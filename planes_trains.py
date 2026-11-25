@@ -143,7 +143,7 @@ EVENTS = [
     ("bts-origin", at(TUE, 19, 50, CT),
      '🎬 This part is personal. Before Hollywood, John Hughes was a Chicago ad copywriter like Neal, and a winter storm wrecked his own flight home from a New York presentation. Accounts of his real trip vary, but it took days, and it became the seed of this movie.'),
     ("bts-pillows", at(WED, 6, 40, CT),
-     '🎬 That\'s not how John Hughes wrote it. In the script, Del answers "I\'m not sure" and Neal snaps "Find it, Del!" No "between two pillows," no "Those aren\'t pillows!" Unit publicist Andy Lipschultz has said the pillows line was John Candy\'s, made up on set.'),
+     '🎬 The "Those aren\'t pillows!" wake-up isn\'t how John Hughes wrote it. In his script, when Neal asks where Del\'s other hand is, Del says "I\'m not sure" and Neal snaps "Find it, Del!" Unit publicist Andy Lipschultz has said the pillows line was John Candy\'s, made up on set.'),
     ("bts-susan", at(WED, 7, 30, CT),
      "🎬 Meanwhile, back in Chicago... In the original cut, Neal's wife Susan grows suspicious that his string of travel delays is cover for an affair. The subplot was cut, but it's why some fans think she looks so relieved at the end."),
     ("bts-release", at(WED, 8, 15, CT),
